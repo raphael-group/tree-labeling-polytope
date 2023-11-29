@@ -66,6 +66,10 @@ def parse_arguments():
         "clones", help="Clones TSV file"
     )
 
+    parser.add_argument(
+        "--root", help="Root node", default="root"
+    )
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -95,6 +99,12 @@ if __name__ == "__main__":
 
         return y
 
-    root = "A"
-    res = mp(tree, root, character_set, leaf_f, dist_f)[root]
+    root = args.root
+    scores = mp(tree, root, character_set, leaf_f, dist_f)
+    for node, dp_table in scores.items():
+        if is_leaf(tree, node):
+            continue
+        print(node, dp_table)
+
+    res = scores[root]
     print(min(res.values()))
