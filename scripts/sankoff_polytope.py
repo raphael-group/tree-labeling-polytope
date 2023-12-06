@@ -10,6 +10,7 @@ from loguru import logger
 from tqdm import tqdm
 from enum import Enum
 from dataclasses import dataclass
+from collections import defaultdict
 
 def is_leaf(T, node):
     return len(T[node]) == 0
@@ -21,107 +22,88 @@ hypergraph.
 @dataclass(frozen=True)
 class State:
     node : str
-    character : str
+    label : str
 
-def create_sankoff_polytope(T, root, character_set, leaf_f, dist_f):
+"""
+Creates the Sankoff polytope whose vertices correspond
+to the set of solutions to the maximum parsimony problem.
+"""
+def create_sankoff_polytope(T, root, character_set, leaf_f, dist_f, root_label=None):
     model = pyo.ConcreteModel()
 
     logger.info(f"Creating Sankoff polytope for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
 
-    logger.info("Creating decision variables.")
-    # map from (j, J) -> decision variable {0, 1}
-    # where J is a set of states
-    decisions = [] 
-    for node in T.nodes:
-        if is_leaf(T, node):
-            continue
+    # add a dummy root node
+    T.add_node("dummy_root")
+    T.add_edge("dummy_root", root)
 
-        for char in character_set:
-            j = State(node, char)
+    # i.e. x_{u,v,c,c'} = 1 if u is assigned character c and v is assigned character c'
+    model = pyo.ConcreteModel()
+    # set domain to be [0, 1]
+    model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals, initialize=0)
 
-            internal_children = [c for c in T[node] if not is_leaf(T, c)]
-            for states in itertools.product(character_set, repeat=len(internal_children)):
-                J = frozenset(map(lambda x: State(x[0], x[1]), zip(internal_children, states)))
-                decisions.append((j, J))
+    # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w, c
+    model.edge_constraints = pyo.ConstraintList()
+    for u, v in T.edges:
+        for c in character_set:
+            for w in T[v]:
+                model.edge_constraints.add(
+                    sum(model.decisions[u, v, c2, c] for c2 in character_set) - sum(model.decisions[v, w, c, c2] for c2 in character_set) == 0
+                )
 
-    model.decisions = pyo.Var(decisions, domain=pyo.NonNegativeReals)
+    # set \sum_{c} x_{u,v,c,c'} = 1 for all e=(u,v), v is a leaf, and c' is the label of v
+    # set \sum_{c} x_{u,v,c,c'} = 0 for all e=(u,v), v is a leaf, and c' is not the label of v
+    model.leaf_constraints = pyo.ConstraintList()
+    for u, v in T.edges:
+        if not is_leaf(T, v): continue
+        for c in character_set:
+            if c == leaf_f(v):
+                model.leaf_constraints.add(sum(model.decisions[u, v, c2, c] for c2 in character_set) == 1)
+            else:
+                model.leaf_constraints.add(sum(model.decisions[u, v, c2, c] for c2 in character_set) == 0)
 
-    logger.info("Computing decision costs.")
-    # map from (j, J) -> \mathbb{R}^+ 
-    decision_costs = {}
-    for head, J in decisions:
-        cost = 0
-        for tail in J:
-            cost += dist_f(head.character, tail.character)
+    # set root label if provided
+    if root_label is not None:
+        model.root_constraint = pyo.ConstraintList()
+        model.root_constraint.add(sum(model.decisions["dummy_root", root, c, root_label] for c in character_set) == 1)
 
-            if all(is_leaf(T, c) for c in T[tail.node]):
-                for c in T[tail.node]:
-                    cost += dist_f(tail.character, leaf_f(c))
-        
-        for c in T[head.node]:
-            if not is_leaf(T, c): continue
-            cost += dist_f(head.character, leaf_f(c))
+    # set objective to be \sum_{uv} \sum_{c,c'} x_{u,v,c,c'} * d(c, c')
+    model.objective = pyo.Objective(expr=sum(model.decisions[u, v, c1, c2] * dist_f(c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set))
+    return model
 
-        decision_costs[(head, J)] = cost
+"""
+Appends migration variables to the Sankoff polytope.
+"""
+def append_migrations(model, T, character_set):
+    logger.info("Adding migration constraints.")
+    edges = [(i, j) for i in character_set for j in character_set if i != j]
+    model.migrations = pyo.Var(edges, domain=pyo.Binary, initialize=1)
+    model.migration_constraints = pyo.ConstraintList()
+    for u, v, c1, c2 in model.decisions:
+        if c1 == c2: continue
+        model.migration_constraints.add(
+            model.decisions[u, v, c1, c2] <= model.migrations[c1, c2]
+        )
 
-    # create a map from j to the set of decision variables whose tail contains j
-    j_to_J = {}
-    for l, J in decisions:
-        for j in J:
-            if j not in j_to_J:
-                j_to_J[j] = []
-            j_to_J[j].append((l, J))
-
-    logger.info("Adding flow constraints.")
-    # add flow constraints
-    model.flows = pyo.ConstraintList()
-    for node in T.nodes:
-        if is_leaf(T, node):
-            continue
-
-        if node == root:
-            continue
-
-        internal_children = [c for c in T[node] if not is_leaf(T, c)]
-
-        # in this case, require 1 unit of out flow over all states
-        if len(internal_children) == 0:
-            out_flow_expr = 0
-            for char in character_set:
-                j = State(node, char)
-                out_flow_expr += sum(model.decisions[(l, J)] for l, J in j_to_J[j]) 
-
-            model.flows.add(out_flow_expr == 1)
-            continue
-
-        for char in character_set:
-            j = State(node, char)
-            # else, flow into j must be equal to flow out of j
-            in_flow_expr, out_flow_expr = 0, 0
-            for l, J in j_to_J[j]:
-                out_flow_expr += model.decisions[(l, J)]
-
-            for states in itertools.product(character_set, repeat=len(internal_children)):
-                J = frozenset(map(lambda x: State(x[0], x[1]), zip(internal_children, states)))
-                in_flow_expr += model.decisions[(j, J)]
-
-            model.flows.add(
-                in_flow_expr == out_flow_expr
+"""
+Constrain the Sankoff polytope to only allow certain migration graphs.
+"""
+def constrain_migration_graphs(model, character_set, constraint_type):
+    logger.info("Adding migration graph constraints.")
+    model.migration_graph_constraints = pyo.ConstraintList()
+    if constraint_type == "tree":
+        for S in itertools.chain.from_iterable(itertools.combinations(character_set, r) for r in range(2, len(character_set))):
+            model.migration_graph_constraints.add(
+                sum(model.migrations[(i, j)] for i in S for j in S if i != j) <= len(S) - 1
             )
-
-    # let in flow be 1 for the root
-    model.flows.add(
-        sum(model.decisions[(j, J)] for j, J in decisions if j.node == root) == 1
-    )
-
-    logger.info("Adding objective function.")
-    # add objective function (minimize the sum of the costs of all decisions)
-    model.objective = pyo.Objective(
-        expr=sum(model.decisions[(j, J)] * decision_costs[(j, J)] for j, J in decisions),
-        sense=pyo.minimize
-    )
-
-    return model, decision_costs
+    elif constraint_type == "dag":
+        for S in itertools.chain.from_iterable(itertools.combinations(character_set, r) for r in range(2, len(character_set))):
+            for C in itertools.permutations(S):
+                model.migration_graph_constraints.add(
+                    sum(model.migrations[(C[i], C[(i+1) % len(C)])] for i in range(len(C))) <= len(C) - 1
+                )
+    else:
+        raise ValueError(f"Unknown constraint type: {constraint_type}")
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -137,7 +119,20 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-c", "--constraints", help="Migration graph constraints", choices=["tree", "dag", "none"], 
+        default="none"
+    )
+
+    parser.add_argument(
+        "-o", "--output", help="Output prefix", default="result"
+    )
+
+    parser.add_argument(
         "-r", "--root", help="Root of the tree", default="root"
+    )
+
+    parser.add_argument(
+        "-l", "--label", help="Root label", default=None
     )
 
     return parser.parse_args()
@@ -147,6 +142,12 @@ if __name__ == "__main__":
 
     tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), nodetype=str)
     labels_tsv = pd.read_csv(args.labels, sep="\t", header=None, names=["id", "label"]).set_index("id")
+
+    if not nx.is_directed_acyclic_graph(tree):
+        raise ValueError("Graph is not a tree, it contains cycles.")
+
+    if not nx.is_weakly_connected(tree):
+        raise ValueError("Graph is not connected, it is a forest.")
 
     def dist_f(x, y):
         if x is None or y is None:
@@ -173,16 +174,37 @@ if __name__ == "__main__":
         unlabeled_leaves = [node for node in tree.nodes if is_leaf(tree, node) and leaf_f(node) is None]
         raise ValueError(f"Leaves {unlabeled_leaves} are unlabeled.")
 
-    model, decision_costs = create_sankoff_polytope(tree, args.root, character_set, leaf_f, dist_f)
+    model = create_sankoff_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
 
-    decision = (State(node='A', character='SBwl'), frozenset({State(node='B', character='SBwl'), State(node='D', character='ROv')}))
-    
+    if args.constraints != "none":
+        append_migrations(model, tree, character_set)
+        constrain_migration_graphs(model, character_set, args.constraints)
+
     solver = pyo.SolverFactory('gurobi')
     solver.solve(model, tee=True)
 
-    # print non-zero decision variables
-    for j, J in model.decisions:
-        if model.decisions[(j, J)].value > 0:
-            print(f"{j} {J} {model.decisions[(j, J)].value}")
-            print(f"cost: {decision_costs[(j, J)]}")
+    # compute (an) optimal vertex labeling
+    vertex_labeling = {}
+    for u, v in tree.edges:
+        for c1, c2 in itertools.product(character_set, character_set):
+            if np.abs(model.decisions[u, v, c1, c2]()) > 1e-4:
+                vertex_labeling[u] = c1
+                vertex_labeling[v] = c2
 
+    # write (an) optimal labeling to a file 
+    with open(f"{args.output}_vertex_labeling.csv", "w") as f:
+        f.write("vertex,label\n")
+        for node, label in vertex_labeling.items():
+            f.write(f"{node},{label}\n")
+
+    # compute the migration multi-graph
+    migration_graph = defaultdict(int)
+    for u, v in tree.edges:
+        if vertex_labeling[u] != vertex_labeling[v]:
+            migration_graph[(vertex_labeling[u], vertex_labeling[v])] += 1
+
+    # write migration multi-graph to a file 
+    with open(f"{args.output}_migration_graph.csv", "w") as f:
+        f.write("source,target,count\n")
+        for (i, j), count in migration_graph.items():
+            f.write(f"{i},{j},{count}\n")
