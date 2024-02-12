@@ -9,29 +9,19 @@ import pyomo.environ as pyo
 from loguru import logger
 from tqdm import tqdm
 from enum import Enum
-from dataclasses import dataclass
 from collections import defaultdict
 
 def is_leaf(T, node):
     return len(T[node]) == 0
 
 """
-Represents a vertex in the Sankoff directed acyclic
-hypergraph.
-"""
-@dataclass(frozen=True)
-class State:
-    node : str
-    label : str
-
-"""
-Creates the Sankoff polytope whose vertices correspond
+Creates the tree labeling polytope whose vertices correspond
 to the set of solutions to the maximum parsimony problem.
 """
-def create_sankoff_polytope(T, root, character_set, leaf_f, dist_f, root_label=None):
+def create_tree_labeling_polytope(T, root, character_set, leaf_f, dist_f, root_label=None):
     model = pyo.ConcreteModel()
 
-    logger.info(f"Creating Sankoff polytope for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
+    logger.info(f"Creating tree labeling polytope for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
 
     # add a dummy root node
     T.add_node("dummy_root")
@@ -68,11 +58,11 @@ def create_sankoff_polytope(T, root, character_set, leaf_f, dist_f, root_label=N
         model.root_constraint.add(sum(model.decisions["dummy_root", root, c, root_label] for c in character_set) == 1)
 
     # set objective to be \sum_{uv} \sum_{c,c'} x_{u,v,c,c'} * d(c, c')
-    model.objective = pyo.Objective(expr=sum(model.decisions[u, v, c1, c2] * dist_f(c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set))
+    model.objective = pyo.Objective(expr=sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set))
     return model
 
 """
-Appends migration variables to the Sankoff polytope.
+Appends migration variables to the tree labeling polytope.
 """
 def append_migrations(model, T, character_set):
     logger.info("Adding migration constraints.")
@@ -86,7 +76,7 @@ def append_migrations(model, T, character_set):
         )
 
 """
-Constrain the Sankoff polytope to only allow certain migration graphs.
+Constrain the tree labeling polytope to only allow certain migration graphs.
 """
 def constrain_migration_graphs(model, character_set, constraint_type):
     logger.info("Adding migration graph constraints.")
@@ -105,51 +95,8 @@ def constrain_migration_graphs(model, character_set, constraint_type):
     else:
         raise ValueError(f"Unknown constraint type: {constraint_type}")
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description="Performs maximum parsimony inference by solving a linear program over the Sankoff polytope."
-    )
-
-    parser.add_argument(
-        "tree", help="Tree in edgelist format"
-    )
-
-    parser.add_argument(
-        "labels", help="Leaf labeling as a TSV file"
-    )
-
-    parser.add_argument(
-        "-c", "--constraints", help="Migration graph constraints", choices=["tree", "dag", "none"], 
-        default="none"
-    )
-
-    parser.add_argument(
-        "-o", "--output", help="Output prefix", default="result"
-    )
-
-    parser.add_argument(
-        "-r", "--root", help="Root of the tree", default="root"
-    )
-
-    parser.add_argument(
-        "-l", "--label", help="Root label", default=None
-    )
-
-    return parser.parse_args()
-
-if __name__ == "__main__":
-    args = parse_arguments()
-
-    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), nodetype=int)
-    labels_tsv = pd.read_csv(args.labels, sep="\t", header=None, names=["id", "label"]).set_index("id")
-
-    if not nx.is_directed_acyclic_graph(tree):
-        raise ValueError("Graph is not a tree, it contains cycles.")
-
-    if not nx.is_weakly_connected(tree):
-        raise ValueError("Graph is not connected, it is a forest.")
-
-    def dist_f(x, y):
+def fast_machina(tree, labels_tsv, args):
+    def dist_f(e, x, y):
         if x is None or y is None:
             return 0
 
@@ -174,7 +121,7 @@ if __name__ == "__main__":
         unlabeled_leaves = [node for node in tree.nodes if is_leaf(tree, node) and leaf_f(node) is None]
         raise ValueError(f"Leaves {unlabeled_leaves} are unlabeled.")
 
-    model = create_sankoff_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
+    model = create_tree_labeling_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
 
     if args.constraints != "none":
         append_migrations(model, tree, character_set)
@@ -208,3 +155,57 @@ if __name__ == "__main__":
         f.write("source,target,count\n")
         for (i, j), count in migration_graph.items():
             f.write(f"{i},{j},{count}\n")
+
+def fast_tnet(tree, labels_tsv, args):
+    pass
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Constrained tree labeling using the tree labeling polytope."
+    )
+
+    subparsers = parser.add_subparsers(dest="method", help="Methods")
+    subparsers.required = True
+
+    # fastMACHINA subparser
+    fast_machina_parser = subparsers.add_parser("fast_machina", help="fastMACHINA")
+    fast_machina_parser.add_argument("tree", help="Tree in edgelist format")
+    fast_machina_parser.add_argument("labels", help="Leaf labeling as a TSV file")
+    fast_machina_parser.add_argument("-c", "--constraints", help="Migration graph constraints",
+                                choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag", "none"],
+                                default="none")
+    fast_machina_parser.add_argument("-o", "--output", help="Output prefix", default="result")
+    fast_machina_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
+    fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
+
+    # fastTNET subparser
+    fast_tnet_parser = subparsers.add_parser("fast_tnet", help="fastTNET")
+    fast_tnet_parser.add_argument("tree", help="Tree in edgelist format")
+    fast_tnet_parser.add_argument("labels", help="Leaf labeling as a TSV file")
+    fast_tnet_parser.add_argument("-o", "--output", help="Output prefix", default="result")
+    fast_tnet_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
+    fast_tnet_parser.add_argument("-l", "--label", help="Root label", default=None)
+
+    args = parser.parse_args()
+    return args
+
+if __name__ == "__main__":
+    args = parse_arguments()
+
+    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), nodetype=int)
+    labels_tsv = pd.read_csv(args.labels, sep="\t", header=None, names=["id", "label"]).set_index("id")
+
+    if not nx.is_directed_acyclic_graph(tree):
+        raise ValueError("Graph is not a tree, it contains cycles.")
+
+    if not nx.is_weakly_connected(tree):
+        raise ValueError("Graph is not connected, it is a forest.")
+
+    print(args)
+
+    if args.method == "fast_machina":
+        fast_machina()
+    elif args.method == "fast_tnet":
+        fast_tnet()
+
+
