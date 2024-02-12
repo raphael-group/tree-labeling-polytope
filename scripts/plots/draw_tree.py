@@ -43,7 +43,7 @@ def draw_graph(T, ax=None):
         labels[node] = node 
 
     nx.draw(T, pos, with_labels=False, arrows=True, ax=ax)
-    nx.draw_networkx_labels(T, pos, labels, font_size=10, ax=ax)
+    # nx.draw_networkx_labels(T, pos, labels, font_size=10, ax=ax)
 
 def main():
     parser = argparse.ArgumentParser(description="Draw a graph from an adjacency list")

@@ -13,7 +13,17 @@ from enum import Enum
 from dataclasses import dataclass
 from collections import defaultdict, deque
 
-def small_parsimony_lp_edge_flow(T, root, character_set, leaf_f, dist_f):
+def small_parsimony_lp_edge_flow(T, root, character_set, leaf_f, dist_f, rand_b=False):
+    if rand_b:
+        # rand int between 0 and 10
+        b_1 = random.randint(0, 2)
+        b_2 = random.randint(0, 2)
+        b_3 = random.randint(0, 2)
+    else:
+        b_1 = 0
+        b_2 = 1
+        b_3 = 0
+    
     # add a dummy root node
     T.add_node("dummy_root")
     T.add_edge("dummy_root", root)
@@ -30,7 +40,7 @@ def small_parsimony_lp_edge_flow(T, root, character_set, leaf_f, dist_f):
         for c in character_set:
             for w in T[v]:
                 model.edge_constraints.add(
-                    sum(model.x[u, v, c2, c] for c2 in character_set) - sum(model.x[v, w, c, c2] for c2 in character_set) == 0
+                    sum(model.x[u, v, c2, c] for c2 in character_set) - sum(model.x[v, w, c, c2] for c2 in character_set) == b_1
                 )
 
     # set \sum_{c} x_{u,v,c,c'} = 1 for all e=(u,v), v is a leaf, and c' is the label of v
@@ -40,9 +50,9 @@ def small_parsimony_lp_edge_flow(T, root, character_set, leaf_f, dist_f):
         if not is_leaf(T, v): continue
         for c in character_set:
             if c == leaf_f(v):
-                model.leaf_constraints.add(sum(model.x[u, v, c2, c] for c2 in character_set) == 1)
+                model.leaf_constraints.add(sum(model.x[u, v, c2, c] for c2 in character_set) == b_2)
             else:
-                model.leaf_constraints.add(sum(model.x[u, v, c2, c] for c2 in character_set) == 0)
+                model.leaf_constraints.add(sum(model.x[u, v, c2, c] for c2 in character_set) == b_3)
 
     # set objectiv eto be \sum_{uv} \sum_{c,c'} x_{u,v,c,c'} * d(c, c')
     model.objective = pyo.Objective(expr=sum(model.x[u, v, c, c2] * dist_f(c, c2) for u, v in T.edges for c in character_set for c2 in character_set))
@@ -85,6 +95,35 @@ def small_parsimony_ilp(T, root, character_set, leaf_f, dist_f):
 
     model.objective = pyo.Objective(expr=sum(model.y[u, v, c] - model.z[u, v, c] for u, v in T.edges for c in character_set))
     return model
+
+def dual_mp(T, root, character_set, leaf_f, dist_f):
+    cs = defaultdict(dict) # map from (node, char) -> score i.e. d(T_v, x)
+    stack = deque([root]) # stack to simulate DFS search
+
+    while stack:
+        node = stack.pop()
+
+        if is_leaf(T, node):
+            if leaf_f(node) is None:
+                assert False
+
+            i = leaf_f(node)
+            for j in character_set:
+                cs[node][j] = dist_f(j, i)
+
+            continue
+
+        # all children are scored
+        if all(child in cs for child in T[node]):
+            for j in character_set:
+                cs[node][j] = min(dist_f(j, i) + sum(cs[child][i] for child in T[node]) for i in character_set)
+            continue
+
+        stack.append(node)
+        for child in T[node]:
+            stack.append(child)
+
+    return cs
 
 def mp(T, root, character_set, leaf_f, dist_f):
     scores = defaultdict(dict) # map from (node, char) -> score i.e. d(T_v, x)
@@ -149,6 +188,7 @@ if __name__ == "__main__":
         # construct a random, rooted tree
         undirected_T = nx.random_tree(args.n)
         root = random.choice(list(undirected_T.nodes))
+        print(root)
 
         T = nx.DiGraph() 
         for node in undirected_T.nodes:
@@ -167,12 +207,22 @@ if __name__ == "__main__":
                 T.add_edge(node, child)
                 stack.append(child)
 
+        # write edgelist to file as TSV
+        with open("tree.tsv", "w") as f:
+            for u, v in T.edges:
+                f.write(f"{u}\t{v}\n")
+
         # assign random character labels to the leaves
         character_set = list(range(args.k))
         leaf_labels = {}
         for node in T.nodes:
             if is_leaf(T, node):
                 leaf_labels[node] = random.choice(character_set)
+
+        # write leaf labeling to file as TSV
+        with open("leaf_labels.tsv", "w") as f:
+            for node, label in leaf_labels.items():
+                f.write(f"{node}\t{label}\n")
 
         # compute the scores
         leaf_f = lambda node: leaf_labels[node]
@@ -184,7 +234,9 @@ if __name__ == "__main__":
             for j in range(len(character_set)):
                 if i == j: continue
                 # rand float
-                dist_matrix[i, j] = random.random()
+                dist_matrix[i, j] = 3 * random.random()
+                # rand int 
+                # dist_matrix[i, j] = random.randint(1, 3)
 
         dist_f = lambda x, y: dist_matrix[x, y]
 
@@ -203,8 +255,20 @@ if __name__ == "__main__":
         solver.solve(model)
         value2 = model.objective()
 
-        logger.info(f"Exact score: {exact_score}, LP #1 score: {0.5*value1}, LP #2 score: {value2}")
-        if np.abs(exact_score - value2) > 1e-4:
+        # solve dual MP
+        cs = dual_mp(T, root, character_set, leaf_f, dist_f)
+        dual_obj = min(cs[root].values())
+
+        # grab random node
+        node = random.choice(list(T.nodes))
+        # print(cs[node])
+        # print(scores[node])
+        # print(T.edges)
+        # print(leaf_labels)
+        # print(dist_matrix)
+
+        logger.info(f"Exact score: {exact_score}, LP #1 score: {0.5*value1}, LP #2 score: {value2}, dual MP score: {dual_obj}")
+        if np.abs(exact_score - value2) > 1e-4 or np.abs(exact_score - dual_obj) > 1e-4:
             logger.info(f"Tree: {T.edges}")
             logger.info(f"Leaf labels: {leaf_labels}")
             logger.info(f"Scores: {scores}")

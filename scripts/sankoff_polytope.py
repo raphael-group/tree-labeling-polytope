@@ -140,7 +140,7 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
 
-    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), nodetype=str)
+    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), nodetype=int)
     labels_tsv = pd.read_csv(args.labels, sep="\t", header=None, names=["id", "label"]).set_index("id")
 
     if not nx.is_directed_acyclic_graph(tree):
