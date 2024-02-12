@@ -112,13 +112,47 @@ def sample_random_dag(m, seed, chain_length=None):
 
     return G
 
-def sample_random_labeling(tree, root, character_set, rng, monoclonal=False):
-    pass
+"""
+Sample a random labeling of the vertices of a tree
+using a random walk over the edges of the tree.
+"""
+def sample_random_labeling(tree, tree_root, migration_graph, migration_graph_root, rng, monoclonal=False, prob=0.1):
+    labeling = {}
+    labeling[tree_root] = migration_graph_root
+
+    def random_ordering(neighbors):
+        neighbors = list(neighbors)
+        order = np.arange(len(neighbors))
+        rng.shuffle(order)
+        return [neighbors[i] for i in order]
+
+    migrations_used = set()
+    for u, v in nx.bfs_edges(tree, source=tree_root, sort_neighbors=random_ordering):
+        if rng.random() > prob:
+            labeling[v] = labeling[u]
+            continue
+
+        lu = labeling[u]
+        successors = list(migration_graph.successors(lu))
+        if len(successors) == 0:
+            labeling[v] = lu
+            continue
+
+        lv = rng.choice(successors)
+        if monoclonal and (lu, lv) in migrations_used:
+            labeling[v] = lu
+            continue
+
+        labeling[v] = lv
+        migrations_used.add((lu, lv))
+
+    return labeling
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simulate metastatic cancer evolution along a phylogenetic tree.")
     parser.add_argument("tree", help="Tree in edgelist format")
     parser.add_argument("root", help="Root of the tree")
+    parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("-m", help="Number of labels", type=int, default=6)
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
     parser.add_argument(
@@ -131,16 +165,40 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    tree = nx.read_edgelist(args.tree, nodetype=str)
+    tree = nx.read_edgelist(args.tree, nodetype=str, create_using=nx.DiGraph())
     character_set = range(args.m)
 
     if args.structure == "polyclonal_tree" or args.structure == "monoclonal_tree":
         migration_tree = sample_migration_tree(args.m, args.random_seed)
+        rng = np.random.default_rng(args.random_seed)
+        labeling = sample_random_labeling(tree, args.root, migration_tree, 0, rng, monoclonal=args.structure == "monoclonal_tree")
+        migration_graph = migration_tree
     else:
         migration_dag = sample_random_dag(args.m, args.random_seed)
         migration_dags = list(nx.weakly_connected_components(migration_dag))
         migration_dag = nx.subgraph(migration_dag, max(migration_dags, key=len))
         dag_root = next(nx.topological_sort(migration_dag))
+
+        rng = np.random.default_rng(args.random_seed)
+        labeling = sample_random_labeling(tree, args.root, migration_dag, dag_root, rng, monoclonal=args.structure == "monoclonal_dag")
+        migration_graph = migration_dag
+
+    with open(f"{args.output}_labeling.csv", "w") as f:
+        f.write("vertex,label\n")
+        for node, label in labeling.items():
+            f.write(f"{node},{label}\n")
+
+    with open(f"{args.output}_leaf_labeling.csv", "w") as f:
+        f.write("leaf,label\n")
+        for node, label in labeling.items():
+            if tree.out_degree(node) == 0:
+                f.write(f"{node},{label}\n")
+
+    with open(f"{args.output}_migration_graph.csv", "w") as f:
+        f.write("src,dst\n")
+        for (i, j) in migration_graph.edges:
+            f.write(f"{i},{j}\n")
+
 
 
 
