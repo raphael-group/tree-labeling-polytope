@@ -16,7 +16,8 @@ def is_leaf(T, node):
 
 """
 Creates the tree labeling polytope whose vertices correspond
-to the set of solutions to the maximum parsimony problem.
+to the set of solutions to the (unconstrained) maximum parsimony 
+problem.
 """
 def create_tree_labeling_polytope(T, root, character_set, leaf_f, dist_f, root_label=None):
     model = pyo.ConcreteModel()
@@ -207,5 +208,3 @@ if __name__ == "__main__":
         fast_machina()
     elif args.method == "fast_tnet":
         fast_tnet()
-
-
