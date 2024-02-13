@@ -199,6 +199,3 @@ if __name__ == "__main__":
         for (i, j) in migration_graph.edges:
             f.write(f"{i},{j}\n")
 
-
-
-
