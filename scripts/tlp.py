@@ -10,6 +10,7 @@ from loguru import logger
 from tqdm import tqdm
 from enum import Enum
 from collections import defaultdict
+from gurobipy import GRB
 
 def is_leaf(T, node):
     return len(T[node]) == 0
@@ -77,17 +78,18 @@ def append_migrations(model, T, character_set):
         )
 
 """
-Constrain the tree labeling polytope to only allow certain migration graphs.
+Constrain the tree labeling polytope to only allow certain migration graphs
+by explicitly adding constraints to the model.
 """
 def constrain_migration_graphs(model, character_set, constraint_type):
     logger.info("Adding migration graph constraints.")
     model.migration_graph_constraints = pyo.ConstraintList()
-    if constraint_type == "tree":
+    if constraint_type == "polyclonal_tree":
         for S in itertools.chain.from_iterable(itertools.combinations(character_set, r) for r in range(2, len(character_set))):
             model.migration_graph_constraints.add(
                 sum(model.migrations[(i, j)] for i in S for j in S if i != j) <= len(S) - 1
             )
-    elif constraint_type == "dag":
+    elif constraint_type == "polyclonal_dag":
         for S in itertools.chain.from_iterable(itertools.combinations(character_set, r) for r in range(2, len(character_set))):
             for C in itertools.permutations(S):
                 model.migration_graph_constraints.add(
@@ -96,39 +98,103 @@ def constrain_migration_graphs(model, character_set, constraint_type):
     else:
         raise ValueError(f"Unknown constraint type: {constraint_type}")
 
-def fast_machina(tree, labels_tsv, args):
-    def dist_f(e, x, y):
-        if x is None or y is None:
-            return 0
+"""
+Constrain the tree labeling polytope to only allow certain migration graphs
+by adding constraints to the model using a Gurobi callback.
+"""
+def constrain_migration_graphs_gurobi_callback(model, character_set, constraint_type):
+    def dag_callback(model, gb_model, where):
+        if where != GRB.Callback.MIPSOL:
+            return
 
-        if x == y:
-            return 0
+        # load solutions
+        gb_model.cbGetSolution([model.migrations[i, j] for i in character_set for j in character_set if i != j])
 
-        return 1
+        G = nx.DiGraph()
+        for i in character_set:
+            G.add_node(i)
 
-    def leaf_f(node):
-        if node not in labels_tsv.index:
-            return None
+        for i in character_set:
+            for j in character_set:
+                if i == j: continue
+                if model.migrations[i, j].value > 0.5:
+                    G.add_edge(i, j)
 
-        y = labels_tsv.loc[node, "label"]
-        if y == "None":
-            return None
+        try:
+            S = nx.find_cycle(G)
+            cycle_nodes = [i for (i,_) in S]
+            for C in itertools.permutations(cycle_nodes):
+                logger.info(f"Adding constraint {C} for cycle {S}.")
 
-        return y
- 
-    # load the character set as the set of all leaf labels
-    character_set = labels_tsv[labels_tsv["label"] != "None"]["label"].unique()
-    if not all([leaf_f(node) is not None for node in tree.nodes if is_leaf(tree, node)]):
-        unlabeled_leaves = [node for node in tree.nodes if is_leaf(tree, node) and leaf_f(node) is None]
-        raise ValueError(f"Leaves {unlabeled_leaves} are unlabeled.")
+                cons = model.migration_graph_constraints.add(
+                    sum(model.migrations[(C[i], C[(i+1) % len(C)])] for i in range(len(C))) <= len(C) - 1
+                )
+                gb_model.cbLazy(cons)
+        except nx.exception.NetworkXNoCycle:
+            pass
+
+    def tree_callback(model, gb_model, where):
+        if where != GRB.Callback.MIPSOL:
+            return
+
+        # load solutions
+        gb_model.cbGetSolution([model.migrations[i, j] for i in character_set for j in character_set if i != j])
+
+        G = nx.Graph()
+        for i in character_set:
+            G.add_node(i)
+
+        for i in character_set:
+            for j in character_set:
+                if i == j: continue
+                if model.migrations[i, j].value > 0.5:
+                    G.add_edge(i, j)
+
+        try:
+            S = nx.find_cycle(G)
+            cycle_nodes = [i for (i,_) in S]
+            logger.info(f"Adding constraint for cycle {S}.")
+            cons = model.migration_graph_constraints.add(
+                sum(model.migrations[(i, j)] for i in cycle_nodes for j in cycle_nodes if i != j) <= len(cycle_nodes) - 1
+            )
+            gb_model.cbLazy(cons)
+        except nx.exception.NetworkXNoCycle:
+            pass
+
+    if constraint_type == "polyclonal_tree" or constraint_type == "monoclonal_tree":
+        return tree_callback
+    elif constraint_type == "polyclonal_dag" or constraint_type == "monoclonal_dag":
+        return dag_callback
+    else:
+        raise ValueError(f"Unknown constraint type: {constraint_type}")
+
+    return
+
+"""
+Solves a generalization of the MACHINA parsimonious migration 
+history problem using the tree labeling polytope.
+"""
+def fast_machina(tree, character_set, leaf_f, dist_f, args):
+    solver = pyo.SolverFactory('gurobi_persistent')
 
     model = create_tree_labeling_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
-
     if args.constraints != "none":
         append_migrations(model, tree, character_set)
-        constrain_migration_graphs(model, character_set, args.constraints)
 
-    solver = pyo.SolverFactory('gurobi')
+    if args.constraints.startswith("monoclonal"):
+        for c1, c2 in model.migrations:
+            model.migration_constraints.add(
+                sum(model.decisions[u, v, c1, c2] for u, v in tree.edges) <= model.migrations[c1, c2]
+            )
+
+    solver.set_instance(model)
+
+    if args.constraints != "none":
+        constraint_callback = constrain_migration_graphs_gurobi_callback(model, character_set, args.constraints)
+        model.migration_graph_constraints = pyo.ConstraintList()
+        solver.set_gurobi_param("LazyConstraints", 1)
+        solver.set_callback(constraint_callback)
+
     solver.solve(model, tee=True)
 
     # compute (an) optimal vertex labeling
@@ -139,7 +205,87 @@ def fast_machina(tree, labels_tsv, args):
                 vertex_labeling[u] = c1
                 vertex_labeling[v] = c2
 
-    # write (an) optimal labeling to a file 
+    return vertex_labeling
+
+def exact_tnet(tree, labels_tsv, args):
+    pass
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Constrained tree labeling using the tree labeling polytope."
+    )
+
+    subparsers = parser.add_subparsers(dest="method", help="Methods")
+    subparsers.required = True
+
+    # fastMACHINA subparser
+    fast_machina_parser = subparsers.add_parser("fast_machina", help="fastMACHINA")
+    fast_machina_parser.add_argument("tree", help="Tree in edgelist format")
+    fast_machina_parser.add_argument("labels", help="Leaf labeling as a CSV file")
+    fast_machina_parser.add_argument("-c", "--constraints", help="Migration graph constraints",
+                                choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag", "none"],
+                                default="none")
+    fast_machina_parser.add_argument("-o", "--output", help="Output prefix", default="result")
+    fast_machina_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
+    fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
+
+    # exactTNET subparser
+    exact_tnet_parser = subparsers.add_parser("fast_tnet", help="exactTNET")
+    exact_tnet_parser.add_argument("tree", help="Tree in edgelist format")
+    exact_tnet_parser.add_argument("labels", help="Leaf labeling as a CSV file")
+    exact_tnet_parser.add_argument("-o", "--output", help="Output prefix", default="result")
+    exact_tnet_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
+    exact_tnet_parser.add_argument("-l", "--label", help="Root label", default=None)
+
+    args = parser.parse_args()
+    return args
+
+if __name__ == "__main__":
+    args = parse_arguments()
+
+    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph())
+    labels_csv = pd.read_csv(args.labels, sep=",").set_index("leaf")
+
+    if not nx.is_directed_acyclic_graph(tree):
+        raise ValueError("Graph is not a tree, it contains cycles.")
+
+    if not nx.is_weakly_connected(tree):
+        raise ValueError("Graph is not connected, it is a forest.")
+
+    # defines the distance function between characters x and y along an edge e
+    def dist_f(e, x, y):
+        if x is None or y is None:
+            return 0
+
+        if x == y:
+            return 0
+
+        return 1
+
+    # defines the leaf labeling function
+    def leaf_f(node):
+        if node not in labels_csv.index:
+            return None
+
+        y = labels_csv.loc[node, "label"]
+        if y == "None":
+            return None
+
+        return y
+ 
+    # load the character set as the set of all leaf labels
+    character_set = labels_csv[labels_csv["label"] != "None"]["label"].unique()
+    if not all([leaf_f(node) is not None for node in tree.nodes if is_leaf(tree, node)]):
+        unlabeled_leaves = [node for node in tree.nodes if is_leaf(tree, node) and leaf_f(node) is None]
+        raise ValueError(f"Leaves {unlabeled_leaves} are unlabeled.")
+
+    # computes the vertex labeling using the specified method
+    if args.method == "fast_machina":
+        vertex_labeling = fast_machina(tree, character_set, leaf_f, dist_f, args)
+    elif args.method == "exact_tnet":
+        vertex_labeling = exact_tnet()
+
+    # writes an optimal labeling to a file 
     with open(f"{args.output}_vertex_labeling.csv", "w") as f:
         f.write("vertex,label\n")
         for node, label in vertex_labeling.items():
@@ -157,54 +303,4 @@ def fast_machina(tree, labels_tsv, args):
         for (i, j), count in migration_graph.items():
             f.write(f"{i},{j},{count}\n")
 
-def fast_tnet(tree, labels_tsv, args):
-    pass
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description="Constrained tree labeling using the tree labeling polytope."
-    )
-
-    subparsers = parser.add_subparsers(dest="method", help="Methods")
-    subparsers.required = True
-
-    # fastMACHINA subparser
-    fast_machina_parser = subparsers.add_parser("fast_machina", help="fastMACHINA")
-    fast_machina_parser.add_argument("tree", help="Tree in edgelist format")
-    fast_machina_parser.add_argument("labels", help="Leaf labeling as a TSV file")
-    fast_machina_parser.add_argument("-c", "--constraints", help="Migration graph constraints",
-                                choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag", "none"],
-                                default="none")
-    fast_machina_parser.add_argument("-o", "--output", help="Output prefix", default="result")
-    fast_machina_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
-    fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
-
-    # fastTNET subparser
-    fast_tnet_parser = subparsers.add_parser("fast_tnet", help="fastTNET")
-    fast_tnet_parser.add_argument("tree", help="Tree in edgelist format")
-    fast_tnet_parser.add_argument("labels", help="Leaf labeling as a TSV file")
-    fast_tnet_parser.add_argument("-o", "--output", help="Output prefix", default="result")
-    fast_tnet_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
-    fast_tnet_parser.add_argument("-l", "--label", help="Root label", default=None)
-
-    args = parser.parse_args()
-    return args
-
-if __name__ == "__main__":
-    args = parse_arguments()
-
-    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), nodetype=int)
-    labels_tsv = pd.read_csv(args.labels, sep="\t", header=None, names=["id", "label"]).set_index("id")
-
-    if not nx.is_directed_acyclic_graph(tree):
-        raise ValueError("Graph is not a tree, it contains cycles.")
-
-    if not nx.is_weakly_connected(tree):
-        raise ValueError("Graph is not connected, it is a forest.")
-
-    print(args)
-
-    if args.method == "fast_machina":
-        fast_machina()
-    elif args.method == "fast_tnet":
-        fast_tnet()

@@ -99,7 +99,8 @@ def main():
 
     num_colors = len(labeling['label'].unique())
     colors = sns.color_palette("husl", num_colors)
-    color_map = {label: colors[i] for i, label in enumerate(labeling['label'].unique())}
+    labels = sorted(labeling['label'].unique())
+    color_map = {label: colors[i] for i, label in enumerate(labels)}
 
     draw_colored_tree(T, labeling, color_map)
     # G = make_color_graph(T, labeling, color_map)

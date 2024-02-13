@@ -116,7 +116,7 @@ def sample_random_dag(m, seed, chain_length=None):
 Sample a random labeling of the vertices of a tree
 using a random walk over the edges of the tree.
 """
-def sample_random_labeling(tree, tree_root, migration_graph, migration_graph_root, rng, monoclonal=False, prob=0.1):
+def sample_random_labeling(tree, tree_root, migration_graph, migration_graph_root, rng, monoclonal=False, prob=0.025):
     labeling = {}
     labeling[tree_root] = migration_graph_root
 
@@ -171,7 +171,8 @@ if __name__ == "__main__":
     if args.structure == "polyclonal_tree" or args.structure == "monoclonal_tree":
         migration_tree = sample_migration_tree(args.m, args.random_seed)
         rng = np.random.default_rng(args.random_seed)
-        labeling = sample_random_labeling(tree, args.root, migration_tree, 0, rng, monoclonal=args.structure == "monoclonal_tree")
+        prob = 3 * (migration_tree.size() / tree.size())
+        labeling = sample_random_labeling(tree, args.root, migration_tree, 0, rng, monoclonal=args.structure == "monoclonal_tree", prob=prob)
         migration_graph = migration_tree
     else:
         migration_dag = sample_random_dag(args.m, args.random_seed)
@@ -179,8 +180,9 @@ if __name__ == "__main__":
         migration_dag = nx.subgraph(migration_dag, max(migration_dags, key=len))
         dag_root = next(nx.topological_sort(migration_dag))
 
+        prob = 3 * (migration_dag.size() / tree.size())
         rng = np.random.default_rng(args.random_seed)
-        labeling = sample_random_labeling(tree, args.root, migration_dag, dag_root, rng, monoclonal=args.structure == "monoclonal_dag")
+        labeling = sample_random_labeling(tree, args.root, migration_dag, dag_root, rng, monoclonal=args.structure == "monoclonal_dag", prob=prob)
         migration_graph = migration_dag
 
     with open(f"{args.output}_labeling.csv", "w") as f:
