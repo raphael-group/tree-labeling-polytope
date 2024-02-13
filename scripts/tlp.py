@@ -60,7 +60,8 @@ def create_tree_labeling_polytope(T, root, character_set, leaf_f, dist_f, root_l
         model.root_constraint.add(sum(model.decisions["dummy_root", root, c, root_label] for c in character_set) == 1)
 
     # set objective to be \sum_{uv} \sum_{c,c'} x_{u,v,c,c'} * d(c, c')
-    model.objective = pyo.Objective(expr=sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set))
+    model.objective_expr = sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set)
+    model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.minimize)
     return model
 
 """
@@ -207,8 +208,59 @@ def fast_machina(tree, character_set, leaf_f, dist_f, args):
 
     return vertex_labeling
 
-def exact_tnet(tree, labels_tsv, args):
-    pass
+def exact_tnet(tree, character_set, leaf_f, dist_f, args):
+    solver = pyo.SolverFactory('gurobi')
+
+    model = create_tree_labeling_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
+    solver.solve(model, tee=True, warmstart=True)
+
+    obj = model.objective()
+
+    # require that we are on face of the polytope with minimum objective value
+    model.face_constraint = pyo.Constraint(expr=model.objective_expr == obj)
+
+    logger.info(f"Optimal parsimony score: {obj}")
+    logger.info(f"Adding back transmission constraints.")
+    model.back_transmissions = pyo.Var(character_set, domain=pyo.Binary, initialize=1)
+    model.back_transmission_constraints = pyo.ConstraintList()
+    for (u, v) in tree.edges:
+        e = (u, v)
+        child_edges = nx.bfs_edges(tree, source=v)
+        for e_prime in child_edges:
+            if e_prime == e:
+                continue
+            gener = ((i, j1, j2) for i in character_set for j1 in character_set for j2 in character_set if j1 != i or j2 != i)
+            for i, j1, j2 in gener:
+                model.back_transmission_constraints.add(
+                    model.decisions[u, v, i, j1] + model.decisions[e_prime[0], e_prime[1], j2, i] - 1 <= model.back_transmissions[i]
+                )
+
+    # minimize the number of back transmissions
+    model.bt_objective = pyo.Objective(expr=sum(model.back_transmissions[c] for c in character_set), sense=pyo.minimize)
+    model.objective.deactivate()
+    model.bt_objective.activate()
+
+    # set decision variables to be binary
+    for i in character_set:
+        for j in character_set:
+            for e in tree.edges:
+                model.decisions[e[0], e[1], i, j].domain = pyo.Binary
+
+    solver.solve(model, tee=True, warmstart=True)
+
+    # print out back transmission variables
+    for i in character_set:
+        logger.info(f"Back transmission of {i}: {model.back_transmissions[i].value}")
+
+     # compute (an) optimal vertex labeling
+    vertex_labeling = {}
+    for u, v in tree.edges:
+        for c1, c2 in itertools.product(character_set, character_set):
+            if np.abs(model.decisions[u, v, c1, c2]()) > 1e-4:
+                vertex_labeling[u] = c1
+                vertex_labeling[v] = c2
+
+    return vertex_labeling
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -230,7 +282,7 @@ def parse_arguments():
     fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
 
     # exactTNET subparser
-    exact_tnet_parser = subparsers.add_parser("fast_tnet", help="exactTNET")
+    exact_tnet_parser = subparsers.add_parser("exact_tnet", help="exactTNET")
     exact_tnet_parser.add_argument("tree", help="Tree in edgelist format")
     exact_tnet_parser.add_argument("labels", help="Leaf labeling as a CSV file")
     exact_tnet_parser.add_argument("-o", "--output", help="Output prefix", default="result")
@@ -283,7 +335,7 @@ if __name__ == "__main__":
     if args.method == "fast_machina":
         vertex_labeling = fast_machina(tree, character_set, leaf_f, dist_f, args)
     elif args.method == "exact_tnet":
-        vertex_labeling = exact_tnet()
+        vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, args)
 
     # writes an optimal labeling to a file 
     with open(f"{args.output}_vertex_labeling.csv", "w") as f:
