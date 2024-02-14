@@ -88,9 +88,7 @@ Melancon et al.
 """
 def sample_random_dag(m, seed, chain_length=None):
     chain_length = 10*(m**2) if chain_length is None else chain_length
-    G = nx.DiGraph()
-    for i in range(m):
-        G.add_node(i)
+    G = sample_migration_tree(m, seed)
 
     rng = np.random.default_rng(seed)
     for i in range(chain_length):
@@ -102,9 +100,12 @@ def sample_random_dag(m, seed, chain_length=None):
 
         had_edge = G.has_edge(u, v)
         G.add_edge(u, v)
-        if list(nx.simple_cycles(G)):
+
+        try:
+            nx.find_cycle(G)
             G.remove_edge(u, v)
-            continue
+        except nx.NetworkXNoCycle:
+            pass
 
         if had_edge:
             G.remove_edge(u, v)
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     if args.structure == "polyclonal_tree" or args.structure == "monoclonal_tree":
         migration_tree = sample_migration_tree(args.m, args.random_seed)
         rng = np.random.default_rng(args.random_seed)
-        prob = 8 * (migration_tree.size() / tree.size())
+        prob = 4 * (migration_tree.size() / tree.size())
         labeling = sample_random_labeling(tree, args.root, migration_tree, 0, rng, monoclonal=args.structure == "monoclonal_tree", prob=prob)
         migration_graph = migration_tree
     else:
@@ -180,7 +181,7 @@ if __name__ == "__main__":
         migration_dag = nx.subgraph(migration_dag, max(migration_dags, key=len))
         dag_root = next(nx.topological_sort(migration_dag))
 
-        prob = 3 * (migration_dag.size() / tree.size())
+        prob = 2 * (migration_dag.size() / tree.size())
         rng = np.random.default_rng(args.random_seed)
         labeling = sample_random_labeling(tree, args.root, migration_dag, dag_root, rng, monoclonal=args.structure == "monoclonal_dag", prob=prob)
         migration_graph = migration_dag
