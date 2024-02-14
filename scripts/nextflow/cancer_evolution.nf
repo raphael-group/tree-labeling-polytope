@@ -19,8 +19,8 @@ process create_sim {
         tuple val(cells), val(labels), val(setting), val(seed)
 
     output:
-        tuple file("sim_labeling.csv"), file("sim_leaf_labeling.csv"), file("sim_migration_graph.csv"), 
-        file("sim_tree_edgelist.tsv"), file("sim_tree.newick"), 
+        tuple path("sim_labeling.csv"), path("sim_leaf_labeling.csv"), path("sim_migration_graph.csv"), 
+        path("sim_tree_edgelist.tsv"), path("sim_tree.newick"), 
         val(cells), val(labels), val(setting), val(seed), val("n${cells}_m${labels}_s${seed}_${setting}")
 
     """
@@ -31,6 +31,22 @@ process create_sim {
     """
 }
 
+process fast_machina {
+    cpus 16
+    memory '8 GB'
+    time '48h'
+
+    input:
+        tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
+
+    output:
+        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), val(id)
+
+    """
+    ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c ${setting} -o inferred
+    """
+}
+
 workflow {
-    create_sim([10, 5, 'polyclonal_tree', 1]) 
+    create_sim([10, 5, 'polyclonal_tree', 1]) | map {[it[1], it[3], it[7], it[9]]} | fast_machina
 }
