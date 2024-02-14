@@ -61,7 +61,6 @@ def draw_colored_tree(T, labeling, color_map, f):
         f.write(f"\t{u} -> {v};\n")
     f.write("}\n")
 
-
 def make_color_graph(T, labeling, color_map):
     color_graph = nx.DiGraph()
     for u in labeling['label'].unique():

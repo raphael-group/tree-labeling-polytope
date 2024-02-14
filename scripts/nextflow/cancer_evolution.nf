@@ -110,8 +110,8 @@ workflow {
 
         output_prefix = "${params.output_dir}/ground_truth/${id}"
         labeling.copyTo("${output_prefix}_labeling.csv")
-        leaf_labeling_csv.copyTo("${output_prefix}_labeling.csv")
-        leaf_labeling_tsv.copyTo("${output_prefix}_labeling.tsv")
+        leaf_labeling_csv.copyTo("${output_prefix}_leaf_labeling.csv")
+        leaf_labeling_tsv.copyTo("${output_prefix}_leaf_labeling.tsv")
         migration_graph.copyTo("${output_prefix}_migration_graph.csv")
         edgelist.copyTo("${output_prefix}_tree_edgelist.csv")
         newick.copyTo("${output_prefix}_tree.newick")
@@ -126,8 +126,11 @@ workflow {
     }
 
     // run fastMACHINA and MACHINA
-    /*
-    simulation | map {[it[1], it[4], it[8], it[10]]} | fast_machina | map {
+    fast_machina_results = simulation | map {[it[1], it[4], it[8], it[10]]} | fast_machina 
+    machina_results      = machina_input | machina
+    
+    // save results
+    fast_machina_results | map {
         inferred_labeling, inferred_migration_graph, timing, id ->
 
         output_prefix = "${params.output_dir}/fast_machina/${id}"
@@ -135,9 +138,8 @@ workflow {
         inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
         timing.copyTo("${output_prefix}_timing.txt")
     }
-    */
 
-    machina_input | machina | map {
+    machina_results | map {
         inferred_labeling, timing, id ->
         output_prefix = "${params.output_dir}/machina/${id}"
         inferred_labeling.copyTo("${output_prefix}_labeling.tsv")
