@@ -24,6 +24,7 @@ def create_tree_labeling_polytope(T, root, character_set, leaf_f, dist_f, root_l
     model = pyo.ConcreteModel()
 
     logger.info(f"Creating tree labeling polytope for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
+    logger.info(f"Character set has size: {len(character_set)}")
 
     # add a dummy root node
     T.add_node("dummy_root")
@@ -34,7 +35,7 @@ def create_tree_labeling_polytope(T, root, character_set, leaf_f, dist_f, root_l
     # set domain to be [0, 1]
     model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals, initialize=0)
 
-    # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w, c
+    # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w,c
     model.edge_constraints = pyo.ConstraintList()
     for u, v in T.edges:
         for c in character_set:

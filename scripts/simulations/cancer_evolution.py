@@ -171,7 +171,7 @@ if __name__ == "__main__":
     if args.structure == "polyclonal_tree" or args.structure == "monoclonal_tree":
         migration_tree = sample_migration_tree(args.m, args.random_seed)
         rng = np.random.default_rng(args.random_seed)
-        prob = 3 * (migration_tree.size() / tree.size())
+        prob = 8 * (migration_tree.size() / tree.size())
         labeling = sample_random_labeling(tree, args.root, migration_tree, 0, rng, monoclonal=args.structure == "monoclonal_tree", prob=prob)
         migration_graph = migration_tree
     else:

@@ -1,8 +1,11 @@
+import subprocess
 import argparse
+
 import networkx as nx
 import pandas as pd
 import seaborn as sns
 
+from loguru import logger
 from Bio import Phylo
 
 """
@@ -45,18 +48,18 @@ def rgb_tuple_to_hex(rgb):
     rgb = [int(255 * x) for x in rgb]
     return "#{:02x}{:02x}{:02x}".format(*rgb)
 
-def draw_colored_tree(T, labeling, color_map):
-    print("digraph T {")
+def draw_colored_tree(T, labeling, color_map, f):
+    f.write("digraph T {\n")
     for u in T.nodes():
         if u in labeling.index:
             label = labeling.loc[u, 'label']
             color = rgb_tuple_to_hex(color_map[label])
-            print(f"  {u} [fillcolor=\"{color}\", style=filled];")
+            f.write(f"\t{u} [label={label}, fillcolor=\"{color}\", style=filled];\n")
         else:
-            print(f"  {u};")
+            f.write(f"\t{u};\n")
     for u, v in T.edges():
-        print(f"  {u} -> {v};")
-    print("}")
+        f.write(f"\t{u} -> {v};\n")
+    f.write("}\n")
 
 
 def make_color_graph(T, labeling, color_map):
@@ -68,21 +71,31 @@ def make_color_graph(T, labeling, color_map):
         v_label = labeling.loc[v, 'label']
         if u_label != v_label:
             if not color_graph.has_edge(u_label, v_label):
-                color_graph.add_edge(u_label, v_label)
+                color_graph.add_edge(u_label, v_label, count=1)
+            else:
+                color_graph[u_label][v_label]['count'] += 1
+
     return color_graph
 
-def draw_color_graph(G):
-    print("digraph G {")
+def draw_color_graph(G, f, multi_edges=False):
+    f.write("digraph G {\n")
     for u in G.nodes():
-        print(f"  {u} [fillcolor=\"{G.nodes[u]['color']}\", style=filled];")
+        f.write(f"\t{u} [fillcolor=\"{G.nodes[u]['color']}\", style=filled];\n")
     for u, v in G.edges():
-        print(f"  {u} -> {v};")
-    print("}")
+        if multi_edges:
+            count = G[u][v]['count']
+            f.write(f"\t{u} -> {v} [label={count}];\n")
+        else:
+            f.write(f"\t{u} -> {v};\n")
+    f.write("}\n")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Draw a tree along with its labeling in the DOT language.")
     parser.add_argument("tree", help="The input tree")
     parser.add_argument("labeling", help="The input labeling")
+    parser.add_argument("-o", "--output", help="The output prefix", default="result")
+    parser.add_argument("-m", "--multi-edges", help="Display multi-edges", action="store_true", default=False)
+    parser.add_argument("-s", "--svg", help="Output as SVG", action="store_true", default=False)
 
     parser.add_argument(
         "-f", "--format", help="The format of the input trees", 
@@ -98,13 +111,23 @@ def main():
     labeling = pd.read_csv(args.labeling).set_index('vertex')
 
     num_colors = len(labeling['label'].unique())
-    colors = sns.color_palette("husl", num_colors)
+    colors = sns.color_palette("deep", num_colors)
     labels = sorted(labeling['label'].unique())
     color_map = {label: colors[i] for i, label in enumerate(labels)}
 
-    draw_colored_tree(T, labeling, color_map)
-    # G = make_color_graph(T, labeling, color_map)
-    # draw_color_graph(G)
+    with open(f"{args.output}_colored_tree.dot", "w") as f:
+        draw_colored_tree(T, labeling, color_map, f)
+
+    with open(f"{args.output}_color_graph.dot", "w") as f:
+        G = make_color_graph(T, labeling, color_map)
+        draw_color_graph(G, f, args.multi_edges)
+
+    if args.svg:
+        logger.info(f"Converting {args.output}_colored_tree.dot to {args.output}_colored_tree.svg...")
+        subprocess.run(["dot", "-Tsvg", f"{args.output}_colored_tree.dot", "-o", f"{args.output}_colored_tree.svg"])
+
+        logger.info(f"Converting {args.output}_color_graph.dot to {args.output}_color_graph.svg...")
+        subprocess.run(["dot", "-Tsvg", f"{args.output}_color_graph.dot", "-o", f"{args.output}_color_graph.svg"])
 
 if __name__ == "__main__":
     main()
