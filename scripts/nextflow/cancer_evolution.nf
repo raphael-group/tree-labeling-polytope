@@ -19,15 +19,16 @@ process create_sim {
         tuple val(cells), val(labels), val(setting), val(seed)
 
     output:
-        tuple path("sim_labeling.csv"), path("sim_leaf_labeling.csv"), path("sim_migration_graph.csv"), 
-        path("sim_tree_edgelist.tsv"), path("sim_tree.newick"), 
+        tuple path("sim_labeling.csv"), path("sim_leaf_labeling.csv"), path("sim_leaf_labeling.tsv"), 
+        path("sim_migration_graph.csv"), path("sim_tree_edgelist.tsv"), path("sim_tree.newick"), 
         val(cells), val(labels), val(setting), val(seed), val("n${cells}_m${labels}_s${seed}_${setting}")
 
     """
     ${params.ngesh} -l ${cells} -L ${cells} -x enum -r ${seed} > sim_tree.newick
-    ${params.python} ${params.scripts_dir}/newick_to_edgelist.py sim_tree.newick > sim_tree_edgelist.tsv
+    ${params.python} ${params.scripts_dir}/processing/newick_to_edgelist.py sim_tree.newick > sim_tree_edgelist.tsv
     ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -m ${labels} -r ${seed}\
                      sim_tree_edgelist.tsv root -s ${setting}
+    tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
     """
 }
 
@@ -40,13 +41,13 @@ process fast_machina {
         tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
 
     output:
-        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), val(id)
+        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
 
     """
-    ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c ${setting} -o inferred
+    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c ${setting} -o inferred > timing.txt
     """
 }
 
 workflow {
-    create_sim([10, 5, 'polyclonal_tree', 1]) | map {[it[1], it[3], it[7], it[9]]} | fast_machina
+    create_sim([10, 5, 'polyclonal_tree', 1]) | map {[it[1], it[4], it[8], it[10]]} | fast_machina
 }
