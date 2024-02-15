@@ -104,7 +104,7 @@ def constrain_migration_graphs(model, character_set, constraint_type):
 Constrain the tree labeling polytope to only allow certain migration graphs
 by adding constraints to the model using a Gurobi callback.
 """
-def constrain_migration_graphs_gurobi_callback(model, character_set, constraint_type):
+def setup_fast_machina_constraints(solver, model, character_set, constraint_type):
     def dag_callback(model, gb_model, where):
         if where != GRB.Callback.MIPSOL:
             return
@@ -135,38 +135,15 @@ def constrain_migration_graphs_gurobi_callback(model, character_set, constraint_
         except nx.exception.NetworkXNoCycle:
             pass
 
-    def tree_callback(model, gb_model, where):
-        if where != GRB.Callback.MIPSOL:
-            return
-
-        # load solutions
-        gb_model.cbGetSolution([model.migrations[i, j] for i in character_set for j in character_set if i != j])
-
-        G = nx.Graph()
-        for i in character_set:
-            G.add_node(i)
-
-        for i in character_set:
-            for j in character_set:
-                if i == j: continue
-                if model.migrations[i, j].value > 0.5:
-                    G.add_edge(i, j)
-
-        try:
-            S = nx.find_cycle(G)
-            cycle_nodes = [i for (i,_) in S]
-            logger.info(f"Adding constraint for cycle {S}.")
-            cons = model.migration_graph_constraints.add(
-                sum(model.migrations[(i, j)] for i in cycle_nodes for j in cycle_nodes if i != j) <= len(cycle_nodes) - 1
-            )
-            gb_model.cbLazy(cons)
-        except nx.exception.NetworkXNoCycle:
-            pass
-
+    model.migration_graph_constraints = pyo.ConstraintList()
     if constraint_type == "polyclonal_tree" or constraint_type == "monoclonal_tree":
-        return tree_callback
+        S = character_set
+        model.migration_graph_constraints.add(
+            sum(model.migrations[(i, j)] for i in S for j in S if i != j) <= len(S) - 1
+        )
     elif constraint_type == "polyclonal_dag" or constraint_type == "monoclonal_dag":
-        return dag_callback
+        solver.set_gurobi_param("LazyConstraints", 1)
+        solver.set_callback(dag_callback)
     else:
         raise ValueError(f"Unknown constraint type: {constraint_type}")
 
@@ -189,14 +166,11 @@ def fast_machina(tree, character_set, leaf_f, dist_f, args):
                 sum(model.decisions[u, v, c1, c2] for u, v in tree.edges) <= model.migrations[c1, c2]
             )
 
-    solver.set_instance(model)
 
     if args.constraints != "none":
-        constraint_callback = constrain_migration_graphs_gurobi_callback(model, character_set, args.constraints)
-        model.migration_graph_constraints = pyo.ConstraintList()
-        solver.set_gurobi_param("LazyConstraints", 1)
-        solver.set_callback(constraint_callback)
+        setup_fast_machina_constraints(solver, model, character_set, args.constraints)
 
+    solver.set_instance(model)
     solver.solve(model, tee=True)
 
     # compute (an) optimal vertex labeling
