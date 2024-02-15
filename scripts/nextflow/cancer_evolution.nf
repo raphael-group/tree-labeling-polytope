@@ -134,15 +134,15 @@ workflow {
         inferred_labeling, inferred_migration_graph, timing, id ->
 
         output_prefix = "${params.output_dir}/fast_machina/${id}"
-        inferred_labeling.copyTo("${output_prefix}_labeling.csv")
-        inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
-        timing.copyTo("${output_prefix}_timing.txt")
+        inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
+        inferred_migration_graph.toFile().copyTo("${output_prefix}_migration_graph.csv")
+        timing.toFile().copyTo("${output_prefix}_timing.txt")
     }
 
     machina_results | map {
         inferred_labeling, timing, id ->
         output_prefix = "${params.output_dir}/machina/${id}"
-        inferred_labeling.copyTo("${output_prefix}_labeling.tsv")
-        timing.copyTo("${output_prefix}_timing.txt")
+        inferred_labeling.toFile().copyTo("${output_prefix}_labeling.tsv")
+        timing.toFile().copyTo("${output_prefix}_timing.txt")
     }
 }

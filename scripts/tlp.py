@@ -141,7 +141,9 @@ def setup_fast_machina_constraints(solver, model, character_set, constraint_type
         model.migration_graph_constraints.add(
             sum(model.migrations[(i, j)] for i in S for j in S if i != j) <= len(S) - 1
         )
+        solver.set_instance(model)
     elif constraint_type == "polyclonal_dag" or constraint_type == "monoclonal_dag":
+        solver.set_instance(model)
         solver.set_gurobi_param("LazyConstraints", 1)
         solver.set_callback(dag_callback)
     else:
@@ -166,11 +168,9 @@ def fast_machina(tree, character_set, leaf_f, dist_f, args):
                 sum(model.decisions[u, v, c1, c2] for u, v in tree.edges) <= model.migrations[c1, c2]
             )
 
-
     if args.constraints != "none":
         setup_fast_machina_constraints(solver, model, character_set, args.constraints)
 
-    solver.set_instance(model)
     solver.solve(model, tee=True)
 
     # compute (an) optimal vertex labeling
