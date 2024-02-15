@@ -170,6 +170,8 @@ def fast_machina(tree, character_set, leaf_f, dist_f, args):
 
     if args.constraints != "none":
         setup_fast_machina_constraints(solver, model, character_set, args.constraints)
+    else:
+        solver.set_instance(model)
 
     solver.solve(model, tee=True)
 
