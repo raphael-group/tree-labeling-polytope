@@ -74,19 +74,21 @@ process create_machina_input {
 process machina {
     cpus 8
     memory '32 GB'
-    time '4h'
+    time '24h'
     stageInMode 'copy'
 
     input:
         tuple path(leaf_labeling), path(edgelist), path(coloring), val(root_label), val(setting), val(id)
 
     output:
-        tuple path("inferred_vertex_labeling.txt"), path("timing.txt"), val(id)
+        tuple path("inferred_vertex_labeling.csv"), path("timing.txt"), val(id)
     
     """
+    module load gurobi
     mkdir machina/
     /usr/bin/time -v ${params.machina} ${edgelist} ${leaf_labeling} -p ${root_label} -c ${coloring} -m ${setting} -o machina 2>> timing.txt
     mv machina/*.labeling inferred_vertex_labeling.txt
+    echo 'vertex,label' | cat - inferred_vertex_labeling.txt | sed 's/ /,/g' > inferred_vertex_labeling.csv
     """
 }
 
@@ -126,10 +128,11 @@ workflow {
     }
 
     // run fastMACHINA and MACHINA
-    fast_machina_results = simulation | map {[it[1], it[4], it[8], it[10]]} | fast_machina 
+    // fast_machina_results = simulation | map {[it[1], it[4], it[8], it[10]]} | fast_machina 
     machina_results      = machina_input | machina
     
     // save results
+    /* 
     fast_machina_results | map {
         inferred_labeling, inferred_migration_graph, timing, id ->
 
@@ -138,11 +141,12 @@ workflow {
         inferred_migration_graph.toFile().copyTo("${output_prefix}_migration_graph.csv")
         timing.toFile().copyTo("${output_prefix}_timing.txt")
     }
+    */
 
     machina_results | map {
         inferred_labeling, timing, id ->
         output_prefix = "${params.output_dir}/machina/${id}"
-        inferred_labeling.toFile().copyTo("${output_prefix}_labeling.tsv")
+        inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
         timing.toFile().copyTo("${output_prefix}_timing.txt")
     }
 }

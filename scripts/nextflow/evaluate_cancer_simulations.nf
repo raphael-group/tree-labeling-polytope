@@ -16,6 +16,8 @@ def trimSuffix(original, suffix) {
 }
 
 process EvaluateLabelings {
+    errorStrategy 'ignore'
+
     input:
         tuple val(algo), val(name), path(tree), path(true_labeling, stageAs: 'true_labeling.csv'), path(inferred_labeling, stageAs: 'inferred_labeling.csv'), path(timing)
 
