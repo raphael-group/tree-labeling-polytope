@@ -323,6 +323,9 @@ if __name__ == "__main__":
     # compute the migration multi-graph
     migration_graph = defaultdict(int)
     for u, v in tree.edges:
+        if u not in vertex_labeling or v not in vertex_labeling:
+            continue
+
         if vertex_labeling[u] != vertex_labeling[v]:
             migration_graph[(vertex_labeling[u], vertex_labeling[v])] += 1
 

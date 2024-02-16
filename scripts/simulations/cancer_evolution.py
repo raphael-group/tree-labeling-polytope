@@ -120,10 +120,10 @@ def simulate_migration(T, generation, mutation_type_map, migration_rate, structu
                     new_site = generate_new_anatomical_site(site)
                     generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
                 else:
-                    if len(list(migration_graph.successors(site))) == 0:
+                    potential_sites = set(migration_graph.nodes()) - set(nx.ancestors(migration_graph, site))
+                    if len(potential_sites) == 0:
                         continue
 
-                    potential_sites = set(migration_graph.nodes()) - set(migration_graph.ancestors(site))
                     new_site = np.random.choice(list(potential_sites))
                     generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
         elif structure == "monoclonal_tree":
@@ -161,7 +161,9 @@ def simulate_evolution(args):
 
         anatomical_df = pd.DataFrame(anatomical_site_counts.items(), columns=["Anatomical site", "Number of cells"])
         anatomical_df['Fraction of cells'] = anatomical_df['Number of cells'] / len(current_generation)
-        # print(anatomical_df.sort_values(by="Number of cells", ascending=False).head(10))
+
+        # tracks 
+        print(anatomical_df.sort_values(by="Number of cells", ascending=False).head(10))
 
         N_cs = defaultdict(int) # map from (site, phenotype) to number of cells
         for cell in current_generation:
@@ -267,12 +269,12 @@ def parse_args():
     parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("-n", help="Number of leaves to sample", type=int, default=200)
     parser.add_argument("--generations", help="Number of generations", type=int, default=10)
-    parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=1e-7)
+    parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=2e-7)
     parser.add_argument("--driver-fitness", help="Driver mutation fitness effect", type=float, default=0.1)
     parser.add_argument("--passenger-fitness", help="Passenger mutation fitness effect", type=float, default=0)
     parser.add_argument("--carrying-capacity", help="Carrying capacity", type=int, default=5e4)
     parser.add_argument("--mutation-rate", help="Mutation rate", type=float, default=0.1)
-    parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-5)
+    parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-6)
     parser.add_argument(
         "-s", "--structure", help="Migration graph structure",
         choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag"],
@@ -303,7 +305,7 @@ if __name__ == "__main__":
             f.write(f"s{cell.identifier},{cell.anatomical_site}\n")
 
     with open(f"{args.output}_leaf_labeling.csv", "w") as f:
-        f.write("vertex,label\n")
+        f.write("leaf,label\n")
         for cell in T.nodes:
             if len(list(T.successors(cell))) == 0:
                 f.write(f"s{cell.identifier},{cell.anatomical_site}\n")
@@ -312,4 +314,3 @@ if __name__ == "__main__":
         f.write("src,dst\n")
         for (i, j) in migration_graph.edges:
             f.write(f"{i},{j}\n")
-    
