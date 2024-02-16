@@ -25,17 +25,8 @@ class MutationType(Enum):
 def phenotype(cell, mutation_type_map):
     return frozenset(mutation for mutation in cell.mutations if mutation_type_map[mutation] == MutationType.DRIVER)
 
-def compute_birth_probability(cell, base_growth_prob, driver_fitness, passenger_fitness, carrying_capacity, mutation_type_map, generation):
-    N_c = 0
-    for other_cell in generation:
-        if phenotype(cell, mutation_type_map) != phenotype(other_cell, mutation_type_map):
-            continue
-
-        if other_cell.anatomical_site != cell.anatomical_site:
-            continue
-
-        N_c += 1
-
+def compute_birth_probability(cell, base_growth_prob, driver_fitness, passenger_fitness, carrying_capacity, mutation_type_map, N_cs):
+    N_c = N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))]
     K_c = carrying_capacity * len(phenotype(cell, mutation_type_map))
     log_p = np.log(base_growth_prob)
     for mutation in cell.mutations:
@@ -44,34 +35,96 @@ def compute_birth_probability(cell, base_growth_prob, driver_fitness, passenger_
 
     return np.exp(log_p)
 
-def simulate_polyclonal_tree_migration(generation, migration_rate):
-    pass
-
-def simulate_polyclonal_dag_migration(generation, migration_rate):
-    pass
-
-def simulate_monoclonal_tree_migration(generation, migration_rate):
-    pass
-
-def simulate_monoclonal_dag_migration(generation, migration_rate):
-    pass
-
-def simulate_migration(generation, migration_rate, structure):
+def simulate_migration(T, generation, mutation_type_map, migration_rate, structure, mean_migrations=3.0):
+    print(len(generation))
     anatomical_sites = set(cell.anatomical_site for cell in generation)
-    for site in anatomical_sites:
-        phenotypes = frozenset(phenotype(cell, mutation_type_map) for cell in generation if cell.anatomical_site == site)
-        
+    all_anatomical_sites = set(cell.anatomical_site for cell in T.nodes())
 
-    if structure == "polyclonal_tree":
-        return simulate_polyclonal_tree_migration(generation, migration_rate)
-    elif structure == "polyclonal_dag":
-        return simulate_polyclonal_dag_migration(generation, migration_rate)
-    elif structure == "monoclonal_tree":
-        return simulate_monoclonal_tree_migration(generation, migration_rate)
-    elif structure == "monoclonal_dag":
-        return simulate_monoclonal_dag_migration(generation, migration_rate)
-    else:
-        raise ValueError(f"Unknown structure {structure}")
+    migration_graph = nx.DiGraph()
+    for site in all_anatomical_sites:
+        migration_graph.add_node(site)
+
+    for (u, v) in T.edges():
+        if u.anatomical_site == v.anatomical_site:
+            continue
+
+        if migration_graph.has_edge(u.anatomical_site, v.anatomical_site):
+            continue
+
+        migration_graph.add_edge(u.anatomical_site, v.anatomical_site)
+
+    N_cs = defaultdict(int) # map from (site, phenotype) to number of cells
+    for cell in generation:
+        N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))] += 1
+
+    migration_probs = {}
+    for site in anatomical_sites:
+        phenotypes = frozenset(
+            phenotype(cell, mutation_type_map) 
+            for cell in generation if cell.anatomical_site == site and len(phenotype(cell, mutation_type_map)) > 0
+        )
+
+        log_migration_prob = np.log(migration_rate)
+        for phen in phenotypes:
+            N = N_cs[(site, phen)]
+            log_migration_prob += np.log(N)
+            log_migration_prob += np.log(len(phen))
+        migration_probs[site] = np.exp(log_migration_prob)
+
+    def generate_new_anatomical_site(parent_site):
+        new_anatomical_site = max(all_anatomical_sites) + 1
+        migration_graph.add_node(new_anatomical_site)
+        migration_graph.add_edge(parent_site, new_anatomical_site)
+        all_anatomical_sites.add(new_anatomical_site)
+        return new_anatomical_site
+
+    for site in anatomical_sites:
+        if np.random.rand() > migration_probs[site]:
+            continue
+
+        cells_to_migrate = [cell for cell in generation if cell.anatomical_site == site]
+        if len(cells_to_migrate) == 0:
+            continue
+
+        if structure == "polyclonal_tree":
+            k = np.random.poisson(mean_migrations)
+            migrating_cell_indices = np.random.choice(len(cells_to_migrate), k, replace=True)
+            migrating_cell_indices = np.unique(migrating_cell_indices)
+            for idx in migrating_cell_indices:
+                if np.random.rand() > 0.5:
+                    new_site = generate_new_anatomical_site(site)
+                    generation[idx] = Cell(new_site, cells_to_migrate[idx].mutations)
+                else:
+                    if len(list(migration_graph.successors(site))) == 0:
+                        continue
+
+                    new_site = np.random.choice(list(migration_graph.successors(site)))
+                    generation[idx] = Cell(new_site, cells_to_migrate[idx].mutations)
+        elif structure == "polyclonal_dag":
+            k = np.random.poisson(mean_migrations)
+            migrating_cell_indices = np.random.choice(len(cells_to_migrate), k, replace=True)
+            migrating_cell_indices = np.unique(migrating_cell_indices)
+            for idx in migrating_cell_indices:
+                if np.random.rand() > 0.5:
+                    new_site = generate_new_anatomical_site(site)
+                    generation[idx] = Cell(new_site, cells_to_migrate[idx].mutations)
+                else:
+                    if len(list(migration_graph.successors(site))) == 0:
+                        continue
+
+                    potential_sites = set(migration_graph.nodes()) - set(migration_graph.ancestors(site))
+                    new_site = np.random.choice(list(potential_sites))
+                    generation[idx] = Cell(new_site, cells_to_migrate[idx].mutations)
+        elif structure == "monoclonal_tree":
+            migrating_cell_idx = np.random.randint(0, len(cells_to_migrate))
+            migrating_cell = cells_to_migrate[migrating_cell_idx]
+            new_site = generate_new_anatomical_site(site)
+            generation[migrating_cell_idx] = Cell(new_site, migrating_cell.mutations)
+        elif structure == "monoclonal_dag":
+            k = np.random.poisson(mean_migrations)
+            pass
+
+    return generation
 
 def simulate_evolution(args):
     T = nx.DiGraph()
@@ -83,15 +136,29 @@ def simulate_evolution(args):
     mutation_type_map = {}
     num_mutations = 0
     for i in range(args.generations):
-        logger.info(f"Creating generation {i}")
-
         current_generation = generations[i]
+        anatomical_site_counts = defaultdict(int)
+        for cell in current_generation:
+            anatomical_site_counts[cell.anatomical_site] += 1
+
+        logger.info(f"Generation {i} has {len(current_generation)} cells.")
+        logger.info(f"Generation {i} has {len(anatomical_site_counts.keys())} anatomical sites.")
+
+        anatomical_df = pd.DataFrame(anatomical_site_counts.items(), columns=["Anatomical site", "Number of cells"])
+        anatomical_df['Fraction of cells'] = anatomical_df['Number of cells'] / len(current_generation)
+        logger.info(anatomical_df.sort_values(by="Number of cells", ascending=False).head(10))
+
+        N_cs = defaultdict(int) # map from (site, phenotype) to number of cells
+        for cell in current_generation:
+            N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))] += 1
+
         next_generation = []
         for cell in current_generation:
             base_growth_prob = 1/2 + (1/(2 + i))
+
             p = compute_birth_probability(
                     cell, base_growth_prob, args.driver_fitness, args.passenger_fitness, 
-                    args.carrying_capacity, mutation_type_map, current_generation
+                    args.carrying_capacity, mutation_type_map, N_cs
             )
 
             if np.random.rand() > p: # cell dies
@@ -120,12 +187,11 @@ def simulate_evolution(args):
             T.add_edge(cell, daughter_cell1)
             T.add_edge(cell, daughter_cell2)
 
-        next_generation = simulate_migration(next_generation, args.migration_rate, args.structure)
+        next_generation = simulate_migration(T, next_generation, mutation_type_map, args.migration_rate, args.structure)
         generations[i+1] = next_generation
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simulate metastatic cancer evolution along a phylogenetic tree.")
-    parser.add_argument("-m", help="Number of labels", type=int, default=6)
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
     parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("--generations", help="Number of generations", type=int, default=10)
@@ -146,6 +212,4 @@ if __name__ == "__main__":
     args = parse_args()
 
     np.random.seed(args.random_seed)
-    character_set = range(args.m)
     simulate_evolution(args)
-
