@@ -6,6 +6,7 @@ params.ground_truth_dir = 'nextflow_results/ground_truth/'
 params.algorithms = [
     ['fast_machina', 'nextflow_results/fast_machina/', '_labeling.csv'],
     ['machina', 'nextflow_results/machina/', '_labeling.csv'],
+    ['exact_tnet', 'nextflow_results/exact_tnet/', '_labeling.csv'],
 ]
 
 def trimSuffix(original, suffix) {

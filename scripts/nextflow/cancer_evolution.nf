@@ -11,6 +11,8 @@ params.mlabels  = [3, 5, 10, 20]
 params.settings = ['polyclonal_tree', 'polyclonal_dag']
 params.seeds    = [1, 2, 3]
 
+params.methods  = ['exact_tnet']
+
 process create_sim {
     cpus 1
     memory '4 GB'
@@ -48,6 +50,23 @@ process fast_machina {
 
     """
     /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c ${setting} -o inferred 2>> timing.txt
+    """
+}
+
+process exact_tnet {
+    cpus 8
+    memory '8 GB'
+    time '4h'
+    stageInMode 'copy'
+
+    input:
+        tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
+
+    output:
+        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
+
+    """
+    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py exact_tnet ${edgelist} ${leaf_labeling} -o inferred 2>> timing.txt
     """
 }
 
@@ -101,6 +120,7 @@ workflow {
     simulation = parameter_channel | create_sim 
 
     // create directories
+    file("${params.output_dir}/exact_tnet/").mkdirs()
     file("${params.output_dir}/fast_machina/").mkdirs()
     file("${params.output_dir}/machina/").mkdirs()
     file("${params.output_dir}/ground_truth/").mkdirs()
@@ -119,34 +139,46 @@ workflow {
         newick.copyTo("${output_prefix}_tree.newick")
     }
 
-    // setup MACHINA input
-    machina_input = simulation | map {[it[0], it[2], it[4], it[8], it[10]]} | create_machina_input | map {
-        root_label = it[1].text.trim()
-        setting_map = ["polyclonal_tree": 1, "polyclonal_dag": 2]
-        setting = setting_map[it[4]]
-        [it[2], it[3], it[0], root_label, setting, it[5]]
+    // run all methods
+   
+    if (params.methods.contains('fast_machina')) {
+        fast_machina_results = simulation | map {[it[1], it[4], it[8], it[10]]} | fast_machina 
+        fast_machina_results | map {
+            inferred_labeling, inferred_migration_graph, timing, id ->
+
+            output_prefix = "${params.output_dir}/fast_machina/${id}"
+            inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
+            inferred_migration_graph.toFile().copyTo("${output_prefix}_migration_graph.csv")
+            timing.toFile().copyTo("${output_prefix}_timing.txt")
+        }
     }
 
-    // run fastMACHINA and MACHINA
-    // fast_machina_results = simulation | map {[it[1], it[4], it[8], it[10]]} | fast_machina 
-    machina_results      = machina_input | machina
-    
-    // save results
-    /* 
-    fast_machina_results | map {
-        inferred_labeling, inferred_migration_graph, timing, id ->
+     if (params.methods.contains('exact_tnet')) { 
+        exact_tnet_results = simulation | map {[it[1], it[4], it[8], it[10]]} | exact_tnet 
+        exact_tnet_results | map {
+            inferred_labeling, inferred_migration_graph, timing, id ->
 
-        output_prefix = "${params.output_dir}/fast_machina/${id}"
-        inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
-        inferred_migration_graph.toFile().copyTo("${output_prefix}_migration_graph.csv")
-        timing.toFile().copyTo("${output_prefix}_timing.txt")
+            output_prefix = "${params.output_dir}/exact_tnet/${id}"
+            inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
+            inferred_migration_graph.toFile().copyTo("${output_prefix}_migration_graph.csv")
+            timing.toFile().copyTo("${output_prefix}_timing.txt")
+        }
     }
-    */
 
-    machina_results | map {
-        inferred_labeling, timing, id ->
-        output_prefix = "${params.output_dir}/machina/${id}"
-        inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
-        timing.toFile().copyTo("${output_prefix}_timing.txt")
+    if (params.methods.contains('machina')) {
+        machina_input = simulation | map {[it[0], it[2], it[4], it[8], it[10]]} | create_machina_input | map {
+            root_label = it[1].text.trim()
+            setting_map = ["polyclonal_tree": 1, "polyclonal_dag": 2]
+            setting = setting_map[it[4]]
+            [it[2], it[3], it[0], root_label, setting, it[5]]
+        }
+
+        machina_results      = machina_input | machina
+        machina_results | map {
+            inferred_labeling, timing, id ->
+            output_prefix = "${params.output_dir}/machina/${id}"
+            inferred_labeling.toFile().copyTo("${output_prefix}_labeling.csv")
+            timing.toFile().copyTo("${output_prefix}_timing.txt")
+        }
     }
 }

@@ -9,153 +9,132 @@ from loguru import logger
 from tqdm import tqdm
 from enum import Enum
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import FrozenSet
 
-"""Samples from a uniform distribution over the set {a, a+1, ..., b}"""
-def rand_int(rng, a, b):
-    return rng.integers(a, b+1)
+@dataclass(frozen=True)
+class Cell:
+    anatomical_site: int
+    mutations: FrozenSet[int]
 
-def rand_predecessor(node, predecessors, weights, rng):
-    weighted_preds = [(p, weights[(p, node)]) for p in predecessors]
-    total_weight = sum(weight for _, weight in weighted_preds)
-    r = rng.random() * total_weight
-    upto = 0
-    for pred, weight in weighted_preds:
-        if upto + weight >= r:
-            return pred
-        upto += weight
-    assert False, "The procedure will not reach here."
+@dataclass(frozen=True)
+class MutationType(Enum):
+    DRIVER = 1
+    PASSENGER = 2
 
-"""
-Implementation of Wilson's algorithm for generating a random 
-spanning tree from an arbitrary graph.
-"""
-def sample_random_spanning_tree(G, weights, rng, root=None):
-    spanning_tree = nx.DiGraph()
+def phenotype(cell, mutation_type_map):
+    return frozenset(mutation for mutation in cell.mutations if mutation_type_map[mutation] == MutationType.DRIVER)
 
-    for u in G.nodes:
-        spanning_tree.add_node(u)
-
-    next_node = [-1] * len(G.nodes)
-    in_tree = [False] * len(G.nodes)
-
-    if root is None:
-        root = rand_int(rng, 0, len(G.nodes) - 1)
-
-    in_tree[root] = True
-    for u in G.nodes:
-        if in_tree[u]:
+def compute_birth_probability(cell, base_growth_prob, driver_fitness, passenger_fitness, carrying_capacity, mutation_type_map, generation):
+    N_c = 0
+    for other_cell in generation:
+        if phenotype(cell, mutation_type_map) != phenotype(other_cell, mutation_type_map):
             continue
 
-        v = u
-        while not in_tree[v]:
-            pred = list(G.predecessors(v))
-            if len(pred) == 0:
-                raise RuntimeError("Graph is not strongly connected")
-
-            next_node[v] = rand_predecessor(v, pred, weights, rng)
-            v = next_node[v]
-
-        v = u
-        while not in_tree[v]:
-            in_tree[v] = True
-            spanning_tree.add_edge(next_node[v], v)
-            v = next_node[v]
-
-    return spanning_tree, root
-
-"""
-Sample a random migration tree with m nodes rooted at 
-the 0 vertex.
-"""
-def sample_migration_tree(m, seed):
-    G = nx.DiGraph()
-    for i in range(m):
-        G.add_node(i)
-
-    for i in range(m):
-        for j in range(m):
-            if i != j:
-                G.add_edge(i, j)
-
-    rng = np.random.default_rng(seed)
-    tree, _ = sample_random_spanning_tree(G, {(i, j): 1 for i in range(m) for j in range(m) if i != j}, rng, root=0)
-    return tree
-
-"""
-Sample a random DAG with m nodes using the algorithm of
-`Random Generation of Directed Acyclic Graphs` by 
-Melancon et al.
-"""
-def sample_random_dag(m, seed, chain_length=None):
-    chain_length = 10*(m**2) if chain_length is None else chain_length
-    G = sample_migration_tree(m, seed)
-
-    rng = np.random.default_rng(seed)
-    for i in range(chain_length):
-        u = rand_int(rng, 0, m-1)
-        v = rand_int(rng, 0, m-1)
-
-        if u == v:
+        if other_cell.anatomical_site != cell.anatomical_site:
             continue
 
-        had_edge = G.has_edge(u, v)
-        G.add_edge(u, v)
+        N_c += 1
 
-        try:
-            nx.find_cycle(G)
-            G.remove_edge(u, v)
-        except nx.NetworkXNoCycle:
-            pass
+    K_c = carrying_capacity * len(phenotype(cell, mutation_type_map))
+    log_p = np.log(base_growth_prob)
+    for mutation in cell.mutations:
+        mut_fitness = driver_fitness if mutation_type_map[mutation] == MutationType.DRIVER else passenger_fitness
+        log_p += np.log((1+mut_fitness)*(1 - (N_c/K_c)))
 
-        if had_edge:
-            G.remove_edge(u, v)
-            continue
+    return np.exp(log_p)
 
-    return G
+def simulate_polyclonal_tree_migration(generation, migration_rate):
+    pass
 
-"""
-Sample a random labeling of the vertices of a tree
-using a random walk over the edges of the tree.
-"""
-def sample_random_labeling(tree, tree_root, migration_graph, migration_graph_root, rng, monoclonal=False, prob=0.025):
-    labeling = {}
-    labeling[tree_root] = migration_graph_root
+def simulate_polyclonal_dag_migration(generation, migration_rate):
+    pass
 
-    def random_ordering(neighbors):
-        neighbors = list(neighbors)
-        order = np.arange(len(neighbors))
-        rng.shuffle(order)
-        return [neighbors[i] for i in order]
+def simulate_monoclonal_tree_migration(generation, migration_rate):
+    pass
 
-    migrations_used = set()
-    for u, v in nx.bfs_edges(tree, source=tree_root, sort_neighbors=random_ordering):
-        if rng.random() > prob:
-            labeling[v] = labeling[u]
-            continue
+def simulate_monoclonal_dag_migration(generation, migration_rate):
+    pass
 
-        lu = labeling[u]
-        successors = list(migration_graph.successors(lu))
-        if len(successors) == 0:
-            labeling[v] = lu
-            continue
+def simulate_migration(generation, migration_rate, structure):
+    anatomical_sites = set(cell.anatomical_site for cell in generation)
+    for site in anatomical_sites:
+        phenotypes = frozenset(phenotype(cell, mutation_type_map) for cell in generation if cell.anatomical_site == site)
+        
 
-        lv = rng.choice(successors)
-        if monoclonal and (lu, lv) in migrations_used:
-            labeling[v] = lu
-            continue
+    if structure == "polyclonal_tree":
+        return simulate_polyclonal_tree_migration(generation, migration_rate)
+    elif structure == "polyclonal_dag":
+        return simulate_polyclonal_dag_migration(generation, migration_rate)
+    elif structure == "monoclonal_tree":
+        return simulate_monoclonal_tree_migration(generation, migration_rate)
+    elif structure == "monoclonal_dag":
+        return simulate_monoclonal_dag_migration(generation, migration_rate)
+    else:
+        raise ValueError(f"Unknown structure {structure}")
 
-        labeling[v] = lv
-        migrations_used.add((lu, lv))
+def simulate_evolution(args):
+    T = nx.DiGraph()
+    founder = Cell(0, frozenset())
+    T.add_node(founder)
 
-    return labeling
+    generations = {}
+    generations[0] = [founder]
+    mutation_type_map = {}
+    num_mutations = 0
+    for i in range(args.generations):
+        logger.info(f"Creating generation {i}")
+
+        current_generation = generations[i]
+        next_generation = []
+        for cell in current_generation:
+            base_growth_prob = 1/2 + (1/(2 + i))
+            p = compute_birth_probability(
+                    cell, base_growth_prob, args.driver_fitness, args.passenger_fitness, 
+                    args.carrying_capacity, mutation_type_map, current_generation
+            )
+
+            if np.random.rand() > p: # cell dies
+                continue
+
+            daughter_cell1 = Cell(cell.anatomical_site, cell.mutations)
+            
+            if np.random.rand() < args.mutation_rate:
+                mutation = num_mutations + 1
+                num_mutations += 1
+
+                daughter_cell2 = Cell(cell.anatomical_site, cell.mutations | frozenset([mutation]))
+                if np.random.rand() < args.driver_prob:
+                    mutation_type_map[mutation] = MutationType.DRIVER
+                else:
+                    mutation_type_map[mutation] = MutationType.PASSENGER
+            else:
+                daughter_cell2 = Cell(cell.anatomical_site, cell.mutations)
+
+            next_generation.append(daughter_cell1)
+            next_generation.append(daughter_cell2)
+
+            T.add_node(daughter_cell1)
+            T.add_node(daughter_cell2)
+
+            T.add_edge(cell, daughter_cell1)
+            T.add_edge(cell, daughter_cell2)
+
+        next_generation = simulate_migration(next_generation, args.migration_rate, args.structure)
+        generations[i+1] = next_generation
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simulate metastatic cancer evolution along a phylogenetic tree.")
-    parser.add_argument("tree", help="Tree in edgelist format")
-    parser.add_argument("root", help="Root of the tree")
-    parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("-m", help="Number of labels", type=int, default=6)
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
+    parser.add_argument("-o", "--output", help="Output prefix", default="result")
+    parser.add_argument("--generations", help="Number of generations", type=int, default=10)
+    parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=1e-7)
+    parser.add_argument("--driver-fitness", help="Driver mutation fitness effect", type=float, default=0.1)
+    parser.add_argument("--passenger-fitness", help="Passenger mutation fitness effect", type=float, default=0)
+    parser.add_argument("--carrying-capacity", help="Carrying capacity", type=int, default=5e4)
+    parser.add_argument("--mutation-rate", help="Mutation rate", type=float, default=0.1)
+    parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-5)
     parser.add_argument(
         "-s", "--structure", help="Migration graph structure",
         choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag"],
@@ -166,39 +145,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    tree = nx.read_edgelist(args.tree, nodetype=str, create_using=nx.DiGraph())
+    np.random.seed(args.random_seed)
     character_set = range(args.m)
-
-    if args.structure == "polyclonal_tree" or args.structure == "monoclonal_tree":
-        migration_tree = sample_migration_tree(args.m, args.random_seed)
-        rng = np.random.default_rng(args.random_seed)
-        prob = 4 * (migration_tree.size() / tree.size())
-        labeling = sample_random_labeling(tree, args.root, migration_tree, 0, rng, monoclonal=args.structure == "monoclonal_tree", prob=prob)
-        migration_graph = migration_tree
-    else:
-        migration_dag = sample_random_dag(args.m, args.random_seed)
-        migration_dags = list(nx.weakly_connected_components(migration_dag))
-        migration_dag = nx.subgraph(migration_dag, max(migration_dags, key=len))
-        dag_root = next(nx.topological_sort(migration_dag))
-
-        prob = 2 * (migration_dag.size() / tree.size())
-        rng = np.random.default_rng(args.random_seed)
-        labeling = sample_random_labeling(tree, args.root, migration_dag, dag_root, rng, monoclonal=args.structure == "monoclonal_dag", prob=prob)
-        migration_graph = migration_dag
-
-    with open(f"{args.output}_labeling.csv", "w") as f:
-        f.write("vertex,label\n")
-        for node, label in labeling.items():
-            f.write(f"{node},{label}\n")
-
-    with open(f"{args.output}_leaf_labeling.csv", "w") as f:
-        f.write("leaf,label\n")
-        for node, label in labeling.items():
-            if tree.out_degree(node) == 0:
-                f.write(f"{node},{label}\n")
-
-    with open(f"{args.output}_migration_graph.csv", "w") as f:
-        f.write("src,dst\n")
-        for (i, j) in migration_graph.edges:
-            f.write(f"{i},{j}\n")
+    simulate_evolution(args)
 

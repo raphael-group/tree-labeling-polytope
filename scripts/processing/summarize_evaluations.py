@@ -26,6 +26,7 @@ def load_files(directory):
                     'cells': n,
                     'labels': m,
                     'seed': s,
+                    'setting': setting,
                     'elapsed_time': content['elapsed_time'],
                     'num_correctly_labeled': content['num_correctly_labeled'],
                     'num_vertices': content['num_vertices'],
