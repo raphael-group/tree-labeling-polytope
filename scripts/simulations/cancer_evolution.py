@@ -23,9 +23,41 @@ class MutationType(Enum):
     DRIVER = 1
     PASSENGER = 2
 
+@dataclass(frozen=True)
+class EvolutionParameters:
+    driver_prob: float
+    driver_fitness: float
+    passenger_fitness: float
+    carrying_capacity: int
+    mutation_rate: float
+    migration_rate: float
+    mean_migrations: float
+    structure: str
+
+""" Global variables to generate unique identifiers for cells and mutations. """
+cell_id = 0
+def generate_cell_id():
+    global cell_id
+    cell_id += 1
+    return cell_id
+
+mutation_id = 0
+def generate_mutation_id():
+    global mutation_id
+    mutation_id += 1
+    return mutation_id
+
+"""
+Given a cell and a map from mutations to mutation types,
+return the phenotype of the cell, which is the set of
+driver mutations in the cell.
+"""
 def phenotype(cell, mutation_type_map):
     return frozenset(mutation for mutation in cell.mutations if mutation_type_map[mutation] == MutationType.DRIVER)
 
+"""
+Computes the probability that a cell divides and produces offspring.
+"""
 def compute_birth_probability(cell, base_growth_prob, driver_fitness, passenger_fitness, carrying_capacity, mutation_type_map, N_cs):
     N_c = N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))]
     K_c = carrying_capacity * len(phenotype(cell, mutation_type_map))
@@ -41,9 +73,11 @@ Simulate the metastatic migration of cells in a generation.
 Taking a generation of cells as a list, we simulate the 
 migration of cells to other anatomical sites, outputting 
 the a list of migrated cells of the same length and phenotypes,
-but with different anatomical sites.
+but with migrated anatomical sites.
 """
-def simulate_migration(T, generation, mutation_type_map, migration_rate, structure, mean_migrations=3.0):
+def simulate_migration(T, generation, mutation_type_map, params):
+    generation = generation.copy()
+
     anatomical_sites = set(cell.anatomical_site for cell in generation)
     all_anatomical_sites = set(cell.anatomical_site for cell in T.nodes())
 
@@ -71,7 +105,7 @@ def simulate_migration(T, generation, mutation_type_map, migration_rate, structu
             for cell in generation if cell.anatomical_site == site and len(phenotype(cell, mutation_type_map)) > 0
         )
 
-        log_migration_prob = np.log(migration_rate)
+        log_migration_prob = np.log(params.migration_rate)
         for phen in phenotypes:
             N = N_cs[(site, phen)]
             log_migration_prob += np.log(N)
@@ -93,8 +127,8 @@ def simulate_migration(T, generation, mutation_type_map, migration_rate, structu
         if len(cells_to_migrate) == 0:
             continue
 
-        if structure == "polyclonal_tree":
-            k = np.random.poisson(mean_migrations)
+        if params.structure == "polyclonal_tree":
+            k = np.random.poisson(params.mean_migrations)
             migrating_cell_indices = np.random.choice([x for x, _ in cells_to_migrate], k, replace=True)
             migrating_cell_indices = np.unique(migrating_cell_indices)
             for idx in migrating_cell_indices:
@@ -109,8 +143,8 @@ def simulate_migration(T, generation, mutation_type_map, migration_rate, structu
 
                     new_site = np.random.choice(list(migration_graph.successors(site)))
                     generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
-        elif structure == "polyclonal_dag":
-            k = np.random.poisson(mean_migrations)
+        elif params.structure == "polyclonal_dag":
+            k = np.random.poisson(params.mean_migrations)
             migrating_cell_indices = np.random.choice([x for x, _ in cells_to_migrate], k, replace=True)
             migrating_cell_indices = np.unique(migrating_cell_indices)
             for idx in migrating_cell_indices:
@@ -126,12 +160,12 @@ def simulate_migration(T, generation, mutation_type_map, migration_rate, structu
 
                     new_site = np.random.choice(list(potential_sites))
                     generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
-        elif structure == "monoclonal_tree":
+        elif params.structure == "monoclonal_tree":
             idx = np.random.choice([x for x, _ in cells_to_migrate])
             migrating_cell = generation[idx]
             new_site = generate_new_anatomical_site(site)
             generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
-        elif structure == "monoclonal_dag":
+        elif params.structure == "monoclonal_dag":
             raise NotImplementedError
 
             k = np.random.poisson(mean_migrations)
@@ -140,19 +174,58 @@ def simulate_migration(T, generation, mutation_type_map, migration_rate, structu
 
     return generation
 
-def simulate_evolution(args):
-    T = nx.DiGraph()
-    founder = Cell(0, 0, frozenset())
-    T.add_node(founder)
+"""
+Simulates division of the current generation of cells,
+returning the next generation of cells and the updated
+cell lineage tree.
+"""
+def simulate_cell_division(T, current_generation, mutation_type_map, base_growth_prob, params):
+    T = T.copy()
 
-    generations = {}
-    generations[0] = [founder]
-    mutation_type_map = {}
-    num_mutations = 0
-    num_cells = 1
-    for i in range(args.generations):
-        current_generation = generations[i]
-        anatomical_site_counts = defaultdict(int)
+    # count the number of cells with each anatomical site and phenotype
+    N_cs = defaultdict(int) 
+    for cell in current_generation:
+        N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))] += 1
+
+    next_generation = []
+    for cell in current_generation:
+        p = compute_birth_probability(
+            cell, base_growth_prob, params.driver_fitness, params.passenger_fitness, 
+            params.carrying_capacity, mutation_type_map, N_cs
+        )
+
+        if np.random.rand() > p: # cell dies and has no offspring
+            continue
+
+        dc1_id = generate_cell_id()
+        dc2_id = generate_cell_id()
+
+        daughter_cell1 = Cell(cell.anatomical_site, dc1_id, cell.mutations)
+        
+        if np.random.rand() < params.mutation_rate:
+            mutation = generate_mutation_id()
+
+            daughter_cell2 = Cell(cell.anatomical_site, dc2_id, cell.mutations | frozenset([mutation]))
+            if np.random.rand() < params.driver_prob:
+                mutation_type_map[mutation] = MutationType.DRIVER
+            else:
+                mutation_type_map[mutation] = MutationType.PASSENGER
+        else:
+            daughter_cell2 = Cell(cell.anatomical_site, dc2_id, cell.mutations)
+
+        next_generation.append(daughter_cell1)
+        next_generation.append(daughter_cell2)
+
+        T.add_node(daughter_cell1)
+        T.add_node(daughter_cell2)
+
+        T.add_edge(cell, daughter_cell1)
+        T.add_edge(cell, daughter_cell2)
+
+    return T, next_generation
+
+"""
+anatomical_site_counts = defaultdict(int)
         for cell in current_generation:
             anatomical_site_counts[cell.anatomical_site] += 1
 
@@ -161,62 +234,34 @@ def simulate_evolution(args):
 
         anatomical_df = pd.DataFrame(anatomical_site_counts.items(), columns=["Anatomical site", "Number of cells"])
         anatomical_df['Fraction of cells'] = anatomical_df['Number of cells'] / len(current_generation)
+"""
 
-        # tracks 
-        print(anatomical_df.sort_values(by="Number of cells", ascending=False).head(10))
+"""
+Simulate the evolution of a cancer lineage tree.
+"""
+def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int) -> nx.DiGraph:
+    T = nx.DiGraph()
+    founder = Cell(0, 0, frozenset())
+    T.add_node(founder)
 
-        N_cs = defaultdict(int) # map from (site, phenotype) to number of cells
-        for cell in current_generation:
-            N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))] += 1
+    generations = {}
+    generations[0] = [founder]
+    mutation_type_map = {}
+    for i in range(num_generations):
+        current_generation = generations[i]
+        base_growth_prob = 1/2 + (1/(2 + i))
 
-        next_generation = []
-        for cell in current_generation:
-            base_growth_prob = 1/2 + (1/(2 + i))
+        logger.info(f"Generation {i} has {len(current_generation)} cells.")
 
-            p = compute_birth_probability(
-                cell, base_growth_prob, args.driver_fitness, args.passenger_fitness, 
-                args.carrying_capacity, mutation_type_map, N_cs
-            )
-
-            if np.random.rand() > p: # cell dies and has no offspring
-                continue
-
-            dc1_id = num_cells 
-            dc2_id = num_cells + 1
-            num_cells += 2
-
-            daughter_cell1 = Cell(cell.anatomical_site, dc1_id, cell.mutations)
-            
-            if np.random.rand() < args.mutation_rate:
-                mutation = num_mutations + 1
-                num_mutations += 1
-
-                daughter_cell2 = Cell(cell.anatomical_site, dc2_id, cell.mutations | frozenset([mutation]))
-                if np.random.rand() < args.driver_prob:
-                    mutation_type_map[mutation] = MutationType.DRIVER
-                else:
-                    mutation_type_map[mutation] = MutationType.PASSENGER
-            else:
-                daughter_cell2 = Cell(cell.anatomical_site, dc2_id, cell.mutations)
-
-            ids = [node.identifier for node in T.nodes]
-
-            next_generation.append(daughter_cell1)
-            next_generation.append(daughter_cell2)
-
-            T.add_node(daughter_cell1)
-            T.add_node(daughter_cell2)
-
-            T.add_edge(cell, daughter_cell1)
-            T.add_edge(cell, daughter_cell2)
-
-        ids = [node.identifier for node in T.nodes]
-
-        metastasized_next_generation = simulate_migration(
-            T, next_generation.copy(), mutation_type_map, args.migration_rate, args.structure
+        T, next_generation = simulate_cell_division(
+            T, current_generation, mutation_type_map, base_growth_prob, params
         )
 
-        # replace cells with metastasized cells in tree
+        metastasized_next_generation = simulate_migration(
+            T, next_generation, mutation_type_map, params
+        )
+
+        """ Replace cells with metastasized cells in cell lineage tree """
         for j, cell in enumerate(next_generation):
             T_children = list(T.successors(cell))
             T_parent = list(T.predecessors(cell))[0]
@@ -227,12 +272,9 @@ def simulate_evolution(args):
             for child in T_children:
                 T.add_edge(metastasized_next_generation[j], child)
 
-        ids = [node.identifier for node in T.nodes]
-
         generations[i+1] = metastasized_next_generation
 
     logger.info("Constructing induced subtree...")
-    # select "induced" subtree obtained by sampling n leaves
     selected_leaves = np.random.choice(generations[args.generations], args.n, replace=False)
     marked_nodes = set(selected_leaves)
     for n in nx.dfs_postorder_nodes(T, source=founder):
@@ -285,8 +327,19 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
+    params = EvolutionParameters(
+        driver_prob=args.driver_prob,
+        driver_fitness=args.driver_fitness,
+        passenger_fitness=args.passenger_fitness,
+        carrying_capacity=args.carrying_capacity,
+        mutation_rate=args.mutation_rate,
+        migration_rate=args.migration_rate,
+        mean_migrations=3.0,
+        structure=args.structure
+    )
+
     np.random.seed(args.random_seed)
-    T = simulate_evolution(args)
+    T = simulate_evolution(params, args.n, args.generations)
 
     migration_graph = nx.DiGraph()
     for (u, v) in T.edges():
