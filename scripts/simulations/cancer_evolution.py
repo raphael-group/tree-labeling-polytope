@@ -301,7 +301,7 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
 
         anatomical_df = pd.DataFrame(anatomical_site_counts.items(), columns=["Anatomical site", "Number of cells"])
         anatomical_df['Fraction of cells'] = anatomical_df['Number of cells'] / len(current_generation)
-        print(anatomical_df)
+        # print(anatomical_df)
 
         T, next_generation = simulate_cell_division(
             T, current_generation, base_growth_prob, params
@@ -353,6 +353,26 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
         if not has_rank_two_nodes:
             break
 
+    anatomical_sites = set(cell.anatomical_site for cell in T_induced.nodes())
+    anatomical_sites_in_leaves = set(cell.anatomical_site for cell in selected_leaves)
+    logger.info(f"Number of anatomical sites in tree: {len(anatomical_sites)}")
+    logger.info(f"Number of anatomical sites in leaves: {len(anatomical_sites_in_leaves)}")
+
+    # replace anatomical sites of cells in induced tree if they are not in the leaves
+    for n in list(nx.dfs_preorder_nodes(T_induced, source=founder)):
+        if n not in T_induced.nodes: continue
+        if n.anatomical_site in anatomical_sites_in_leaves: continue
+        if T_induced.in_degree(n) == 0: continue
+
+        parent = list(T_induced.predecessors(n))[0]
+        children = list(T_induced.successors(n))
+
+        T.remove_node(n)
+        T.add_node(Cell(parent.anatomical_site, n.identifier, n.mutations))
+        T.add_edge(parent, n)
+        for child in children:
+            T.add_edge(n, child)
+
     return T_induced
 
 def parse_args():
@@ -360,13 +380,13 @@ def parse_args():
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
     parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("-n", help="Number of leaves to sample", type=int, default=200)
-    parser.add_argument("--generations", help="Number of generations", type=int, default=10)
+    parser.add_argument("--generations", help="Number of generations", type=int, default=40)
     parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=2e-7)
     parser.add_argument("--driver-fitness", help="Driver mutation fitness effect", type=float, default=0.1)
     parser.add_argument("--passenger-fitness", help="Passenger mutation fitness effect", type=float, default=0)
     parser.add_argument("--carrying-capacity", help="Carrying capacity", type=int, default=1000)
     parser.add_argument("--mutation-rate", help="Mutation rate", type=float, default=0.1)
-    parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-6)
+    parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-15)
     parser.add_argument(
         "-s", "--structure", help="Migration graph structure",
         choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag"],
