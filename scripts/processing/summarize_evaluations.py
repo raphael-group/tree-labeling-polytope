@@ -10,7 +10,7 @@ def load_files(directory):
         if file.endswith(".json"):
             with open(os.path.join(directory, file), 'r') as f:
                 content = json.load(f)
-                match = re.search(r'_n(\d+)_m(\d+)_s(\d+)_((poly|mono)clonal_(tree|dag))', file)
+                match = re.search(r'_n(\d+)_m(1E-\d+)_s(\d+)_((poly|mono)clonal_(tree|dag))', file)
                 algorithm = file[:match.start()]
                 n, m, s, setting, _, _ = match.groups()
 
@@ -24,7 +24,7 @@ def load_files(directory):
                 row = {
                     'algorithm': algorithm,
                     'cells': n,
-                    'labels': m,
+                    'migration_rate': float(m),
                     'seed': s,
                     'setting': setting,
                     'elapsed_time': content['elapsed_time'],
