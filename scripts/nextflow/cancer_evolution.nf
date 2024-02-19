@@ -3,7 +3,6 @@ params.output_dir  = "/n/fs/ragr-research/projects/tree-labeling-polytope/nextfl
 params.scripts_dir = "${params.proj_dir}/scripts/"
 
 params.python     = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/python"
-params.ngesh      = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/ngesh"
 params.machina    = "/n/fs/ragr-data/bin/pmh"
 
 params.ncells   = [10, 15, 20, 25, 50, 100]                // number of sampled cells
@@ -11,7 +10,7 @@ params.mrate    = [1e-11, 1e-12, 1e-13, 1e-14]             // migration rate
 params.settings = ['polyclonal_tree', 'polyclonal_dag']    // structure
 params.seeds    = [1, 2, 3, 4]          // random parameter
 
-params.methods  = ['exact_tnet', 'fast_machina', 'parsimony']
+params.methods  = ['tnet'] // ['exact_tnet', 'fast_machina', 'parsimony']
 // params.methods = ['machina']
 
 process create_sim {
@@ -123,6 +122,42 @@ process machina {
     """
 }
 
+process create_tnet_input {
+    cpus 1
+    memory '4 GB'
+    time '59m'
+    stageInMode 'copy'
+
+    input: 
+        tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
+
+    output:
+        tuple path("tnet_input.newick"), path(leaf_labeling), path(edgelist), val(setting), val(id)
+
+    """
+    ${params.python} ${params.scripts_dir}/processing/create_tnet_input.py ${edgelist} ${leaf_labeling} > tnet_input.newick
+    """
+}
+
+process tnet {
+    cpus 1
+    memory '4 GB'
+    time '59m'
+    stageInMode 'copy'
+
+    input:
+        tuple path(tnet_input), path(leaf_labeling), path(edgelist), val(setting), val(id)
+
+    output: 
+        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
+
+    """
+    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tnet.py ${tnet_input} tnet_output_network.tsv 2>> timing.txt
+    ${params.python} ${params.scripts_dir}/processing/create_weights_from_network.py tnet_output_network.tsv > network_weights.csv
+    ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -w network_weights.csv -c none -o inferred
+    """
+}
+
 workflow {
     parameter_channel = channel.fromList(params.ncells)
                                .combine(channel.fromList(params.mrate))
@@ -185,6 +220,19 @@ workflow {
             inferred_labeling, inferred_migration_graph, timing, id ->
 
             output_prefix = "${params.output_dir}/exact_tnet/${id}"
+
+            inferred_labeling.copyTo("${output_prefix}_labeling.csv")
+            inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
+            timing.copyTo("${output_prefix}_timing.txt")
+        }
+    }
+
+    if (params.methods.contains('tnet')) { 
+        tnet_results = simulation | map {[it[1], it[4], it[7], it[9]]} | create_tnet_input | tnet 
+        tnet_results | map {
+            inferred_labeling, inferred_migration_graph, timing, id ->
+
+            output_prefix = "${params.output_dir}/tnet/${id}"
 
             inferred_labeling.copyTo("${output_prefix}_labeling.csv")
             inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
