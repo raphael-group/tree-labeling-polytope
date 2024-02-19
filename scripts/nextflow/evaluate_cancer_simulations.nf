@@ -7,6 +7,8 @@ params.algorithms = [
     ['fast_machina', 'nextflow_results/fast_machina/', '_labeling.csv'],
     ['machina', 'nextflow_results/machina/', '_labeling.csv'],
     ['exact_tnet', 'nextflow_results/exact_tnet/', '_labeling.csv'],
+    ['tnet', 'nextflow_results/tnet/', '_labeling.csv'],
+    ['parsimony', 'nextflow_results/parsimony/', '_labeling.csv'],
 ]
 
 def trimSuffix(original, suffix) {
@@ -32,8 +34,8 @@ process EvaluateLabelings {
 
 workflow {
     ground_truth_trees_ch = Channel
-        .fromPath(params.ground_truth_dir + '*_tree.newick')
-        .map { file -> trimSuffix(file.baseName, '_tree') }
+        .fromPath(params.ground_truth_dir + '*_migration_graph.csv')
+        .map { file -> trimSuffix(file.baseName, '_migration_graph') }
         .unique()
 
     algorithms_ch = Channel.fromList(params.algorithms)
