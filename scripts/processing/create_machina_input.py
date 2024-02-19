@@ -10,7 +10,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     df = pd.read_csv(args.vertex_labeling).set_index("vertex")
-    print(df.loc['root', 'label'])
+    print(df.loc['s0', 'label'])
     labels = df['label'].unique()
     with open(f"{args.output}_coloring.txt", "w") as f:
         for i, label in enumerate(labels):
