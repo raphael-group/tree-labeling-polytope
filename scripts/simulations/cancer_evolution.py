@@ -34,7 +34,9 @@ class EvolutionParameters:
     mean_migrations: float
     structure: str
 
-""" Global variables to generate unique identifiers for cells and mutations. """
+""" 
+Global variables to generate unique identifiers for cells and mutations. 
+"""
 cell_id = 0
 def generate_cell_id():
     global cell_id
@@ -66,7 +68,83 @@ def compute_birth_probability(cell, base_growth_prob, driver_fitness, passenger_
         mut_fitness = driver_fitness if mutation_type_map[mutation] == MutationType.DRIVER else passenger_fitness
         log_p += np.log((1+mut_fitness)*(1 - (N_c/K_c)))
 
-    return np.exp(log_p)
+    prob = np.exp(log_p)
+    return prob
+
+"""
+Given a set of cells to migrate, a mean number of migrations,
+a migration graph, and a generation of cells, the following set of functions
+simulate the migration of cells to other anatomical sites, ensuring that
+the migration graph topology is respected.
+"""
+
+""" Simulate the migration of cells assuming the migration graph is a polyclonal tree. """
+def polyclonal_tree_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_site_fn):
+    k = np.random.poisson(mean_migrations)
+    migrating_cell_indices = np.random.choice(cells_to_migrate, k, replace=True)
+    migrating_cell_indices = np.unique(migrating_cell_indices)
+    for idx in migrating_cell_indices:
+        migrating_cell = generation[idx]
+
+        if np.random.rand() > 0.5:
+            new_site = new_site_fn(site)
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+        else:
+            if len(list(migration_graph.successors(site))) == 0:
+                continue
+
+            new_site = np.random.choice(list(migration_graph.successors(site)))
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+
+    return
+
+""" Simulate the migration of cells assuming the migration graph is a polyclonal DAG. """
+def polyclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_site_fn):
+    k = np.random.poisson(mean_migrations)
+    migrating_cell_indices = np.random.choice(cells_to_migrate, k, replace=True)
+    migrating_cell_indices = np.unique(migrating_cell_indices)
+    for idx in migrating_cell_indices:
+        migrating_cell = generation[idx]
+
+        if np.random.rand() > 0.5:
+            new_site = new_site_fn(site)
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+        else:
+            potential_sites = set(migration_graph.nodes()) - set(nx.ancestors(migration_graph, site))
+            if len(potential_sites) == 0:
+                continue
+
+            new_site = np.random.choice(list(potential_sites))
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+
+    return
+
+""" Simulate the migration of cells assuming the migration graph is a monoclonal tree. """
+def monoclonal_tree_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_site_fn):
+    idx = np.random.choice(cells_to_migrate)
+    migrating_cell = generation[idx]
+    new_site = new_site_fn(site)
+    generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+    return
+
+""" Simulate the migration of cells assuming the migration graph is a monoclonal DAG. """
+def monoclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_site_fn):
+    idx = np.random.choice(cells_to_migrate)
+    migrating_cell = generation[idx]
+
+    if np.random.rand() > 0.5:
+        new_site = new_site_fn(site)
+        generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+        return
+    else:
+        potential_sites = set(migration_graph.nodes()) - set(nx.ancestors(migration_graph, site))
+        if len(potential_sites) == 0:
+            return
+
+        new_site = np.random.choice(list(potential_sites))
+        generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+
+    return
 
 """
 Simulate the metastatic migration of cells in a generation.
@@ -77,10 +155,15 @@ but with migrated anatomical sites.
 """
 def simulate_migration(T, generation, mutation_type_map, params):
     generation = generation.copy()
+    
+    N_cs = defaultdict(int) # map from (site, phenotype) to number of cells
+    for cell in generation:
+        N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))] += 1
 
     anatomical_sites = set(cell.anatomical_site for cell in generation)
     all_anatomical_sites = set(cell.anatomical_site for cell in T.nodes())
 
+    # construct migration graph
     migration_graph = nx.DiGraph()
     for site in all_anatomical_sites:
         migration_graph.add_node(site)
@@ -94,17 +177,18 @@ def simulate_migration(T, generation, mutation_type_map, params):
 
         migration_graph.add_edge(u.anatomical_site, v.anatomical_site)
 
-    N_cs = defaultdict(int) # map from (site, phenotype) to number of cells
-    for cell in generation:
-        N_cs[(cell.anatomical_site, phenotype(cell, mutation_type_map))] += 1
+    # construct map from site to cells with that site
+    sites_to_cell_idxs = defaultdict(list)
+    site_to_phenotypes = defaultdict(set)
+    for idx, cell in enumerate(generation):
+        sites_to_cell_idxs[cell.anatomical_site].append(idx)
+        if len(phenotype(cell, mutation_type_map)) > 0:
+            site_to_phenotypes[cell.anatomical_site].add(phenotype(cell, mutation_type_map))
 
+    # compute probability of migration *from* each site
     migration_probs = {}
     for site in anatomical_sites:
-        phenotypes = frozenset(
-            phenotype(cell, mutation_type_map) 
-            for cell in generation if cell.anatomical_site == site and len(phenotype(cell, mutation_type_map)) > 0
-        )
-
+        phenotypes = site_to_phenotypes[site]
         log_migration_prob = np.log(params.migration_rate)
         for phen in phenotypes:
             N = N_cs[(site, phen)]
@@ -112,7 +196,7 @@ def simulate_migration(T, generation, mutation_type_map, params):
             log_migration_prob += np.log(len(phen))
         migration_probs[site] = np.exp(log_migration_prob)
 
-    def generate_new_anatomical_site(parent_site):
+    def new_anatomical_site_fn(parent_site):
         new_anatomical_site = max(all_anatomical_sites) + 1
         migration_graph.add_node(new_anatomical_site)
         migration_graph.add_edge(parent_site, new_anatomical_site)
@@ -123,54 +207,20 @@ def simulate_migration(T, generation, mutation_type_map, params):
         if np.random.rand() > migration_probs[site]:
             continue
 
-        cells_to_migrate = [(idx, cell) for idx, cell in enumerate(generation) if cell.anatomical_site == site]
+        cells_to_migrate = sites_to_cell_idxs[site]
         if len(cells_to_migrate) == 0:
             continue
 
+        mean_migrations = params.mean_migrations
+
         if params.structure == "polyclonal_tree":
-            k = np.random.poisson(params.mean_migrations)
-            migrating_cell_indices = np.random.choice([x for x, _ in cells_to_migrate], k, replace=True)
-            migrating_cell_indices = np.unique(migrating_cell_indices)
-            for idx in migrating_cell_indices:
-                migrating_cell = generation[idx]
-
-                if np.random.rand() > 0.5:
-                    new_site = generate_new_anatomical_site(site)
-                    generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
-                else:
-                    if len(list(migration_graph.successors(site))) == 0:
-                        continue
-
-                    new_site = np.random.choice(list(migration_graph.successors(site)))
-                    generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+            polyclonal_tree_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
         elif params.structure == "polyclonal_dag":
-            k = np.random.poisson(params.mean_migrations)
-            migrating_cell_indices = np.random.choice([x for x, _ in cells_to_migrate], k, replace=True)
-            migrating_cell_indices = np.unique(migrating_cell_indices)
-            for idx in migrating_cell_indices:
-                migrating_cell = generation[idx]
-
-                if np.random.rand() > 0.5:
-                    new_site = generate_new_anatomical_site(site)
-                    generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
-                else:
-                    potential_sites = set(migration_graph.nodes()) - set(nx.ancestors(migration_graph, site))
-                    if len(potential_sites) == 0:
-                        continue
-
-                    new_site = np.random.choice(list(potential_sites))
-                    generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+            polyclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
         elif params.structure == "monoclonal_tree":
-            idx = np.random.choice([x for x, _ in cells_to_migrate])
-            migrating_cell = generation[idx]
-            new_site = generate_new_anatomical_site(site)
-            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+            monoclonal_tree_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
         elif params.structure == "monoclonal_dag":
-            raise NotImplementedError
-
-            k = np.random.poisson(mean_migrations)
-            migrating_cell_indices = np.random.choice(len(cells_to_migrate), k, replace=True)
-            migrating_cell_indices = np.unique(migrating_cell_indices)
+            monoclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
 
     return generation
 
