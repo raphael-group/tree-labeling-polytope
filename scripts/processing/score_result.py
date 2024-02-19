@@ -36,13 +36,16 @@ Computes the set of all pairwise relations in a directed graph.
 """
 def get_relations(G):
     relations = set()
-    for u in G.nodes():
-        for v in G.nodes():
-            if u == v:
-                continue
+    for (u, v) in G.edges():
+        relations.add((u, v))
 
-            if nx.has_path(G, u, v):
-                relations.add((u, v))
+    # for u in G.nodes():
+        # for v in G.nodes():
+            # if u == v:
+                # continue
+    # 
+            # if nx.has_path(G, u, v):
+                # relations.add((u, v))
 
     return relations
 
