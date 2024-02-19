@@ -257,6 +257,7 @@ def parse_arguments():
     fast_machina_parser.add_argument("-o", "--output", help="Output prefix", default="result")
     fast_machina_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
     fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
+    fast_machina_parser.add_argument("-w", "--weights", help="Weight of transitioning between labels", default=None)
 
     # exactTNET subparser
     exact_tnet_parser = subparsers.add_parser("exact_tnet", help="exactTNET")
@@ -281,15 +282,30 @@ if __name__ == "__main__":
     if not nx.is_weakly_connected(tree):
         raise ValueError("Graph is not connected, it is a forest.")
 
-    # defines the distance function between characters x and y along an edge e
-    def dist_f(e, x, y):
-        if x is None or y is None:
-            return 0
+    if args.weights is not None:
+        weights = pd.read_csv(args.weights).set_index(["src", "dst"])
 
-        if x == y:
-            return 0
+        def dist_f(e, x, y):
+            if x is None or y is None:
+                return 0
 
-        return 1
+            if x == y:
+                return 0
+
+            if (x, y) in weights.index:
+                return weights.loc[(x, y), "weight"]
+
+            return 1
+    else:
+        # defines the distance function between characters x and y along an edge e
+        def dist_f(e, x, y):
+            if x is None or y is None:
+                return 0
+
+            if x == y:
+                return 0
+
+            return 1
 
     # defines the leaf labeling function
     def leaf_f(node):
