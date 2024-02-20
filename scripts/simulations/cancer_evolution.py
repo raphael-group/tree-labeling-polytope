@@ -381,36 +381,31 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
 """
 Stochastically pertubs T using NNI operations.
 """
-def stochastic_nni(T, error_rate=0.30):
+def stochastic_spr(T, num_perturbations=10):
     T = T.copy()
 
-    internal_edges = [(u, v) for (u, v) in T.edges if T.out_degree(v) != 0]
-    num_perturbations = math.floor(len(internal_edges) * error_rate)
+    vertices = list(T.nodes())
     count = 0
     while count < num_perturbations:
-        internal_edges = [(u, v) for (u, v) in T.edges if T.out_degree(v) != 0]
-        idx = np.random.choice(len(internal_edges))
-        u, v = internal_edges[idx]
+        v = vertices[np.random.choice(len(vertices))]
 
-        if T.out_degree(v) == 0:
+        if T.in_degree(v) == 0:
             continue
 
-        u_children = list(set(T[u].keys()) - set([v]))
-        v_children = list(T[v].keys())
+        u = list(T.predecessors(v))[0]
 
-        u_edges = [(u, w) for w in u_children]
-        v_edges = [(v, w) for w in v_children]
-        if not u_edges or not v_edges:
+        candidates = set(T.nodes()) - set(nx.descendants(T, v))
+        candidates.remove(v)
+
+        if len(candidates) == 0:
             continue
 
-        u, w = u_edges[np.random.choice(len(u_edges))]
-        v, z = v_edges[np.random.choice(len(v_edges))]
+        w = list(candidates)[np.random.choice(len(candidates))]
+        if w == u:
+            continue
 
-        # swap e1 and e2
-        T.remove_edge(u, w) 
-        T.remove_edge(v, z)
-        T.add_edge(v, w)
-        T.add_edge(u, z) 
+        T.remove_edge(u, v)
+        T.add_edge(w, v)
 
         count += 1
 
@@ -421,7 +416,7 @@ def parse_args():
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
     parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("-n", help="Number of leaves to sample", type=int, default=200)
-    parser.add_argument("-e", "--error-rate", help="Error rate (default: 0.00)", type=float, default=0.00)
+    parser.add_argument("-e", "--errors", help="Number of errors (default: 0)", type=float, default=0)
     parser.add_argument("--generations", help="Number of generations", type=int, default=40)
     parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=2e-7)
     parser.add_argument("--driver-fitness", help="Driver mutation fitness effect", type=float, default=0.1)
@@ -453,8 +448,8 @@ if __name__ == "__main__":
     np.random.seed(args.random_seed)
     T = simulate_evolution(params, args.n, args.generations)
 
-    if args.error_rate > 0:
-        T_perturbed = stochastic_nni(T, args.error_rate)
+    if args.errors > 0:
+        T_perturbed = stochastic_spr(T, args.errors)
     else:
         T_perturbed = T
 
