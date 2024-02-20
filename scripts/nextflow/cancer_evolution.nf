@@ -24,11 +24,11 @@ process create_sim {
 
     output:
         tuple path("sim_labeling.csv"), path("sim_leaf_labeling.csv"), path("sim_leaf_labeling.tsv"), 
-        path("sim_migration_graph.csv"), path("sim_tree_edgelist.tsv"), val(cells), val(mrate), 
-        val(setting), val(seed), val("n${cells}_m${mrate}_s${seed}_${setting}")
+        path("sim_migration_graph.csv"), path("sim_tree_edgelist.tsv"), path("sim_perturbed_tree_edgelist.tsv"),
+        val(cells), val(mrate), val(setting), val(seed), val("n${cells}_m${mrate}_s${seed}_${setting}")
 
     """
-    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44
+    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e 0.5
     tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
     """
 }
@@ -178,7 +178,7 @@ workflow {
     // move input files to nextflow_results
     simulation | map {
         labeling, leaf_labeling_csv, leaf_labeling_tsv, migration_graph, edgelist, 
-        cells, labels, setting, seed, id ->
+        perturbed_edgelist, cells, labels, setting, seed, id ->
 
         output_prefix = "${params.output_dir}/ground_truth/${id}"
         "cp ${labeling} ${output_prefix}_labeling.csv".execute()
@@ -186,11 +186,12 @@ workflow {
         "cp ${leaf_labeling_tsv} ${output_prefix}_leaf_labeling.tsv".execute()
         "cp ${migration_graph} ${output_prefix}_migration_graph.csv".execute()
         "cp ${edgelist} ${output_prefix}_tree_edgelist.csv".execute()
+        "cp ${perturbed_edgelist} ${output_prefix}_perturbed_tree_edgelist.csv".execute()
     }
 
     // run all methods
     if (params.methods.contains('fast_machina')) {
-        fast_machina_results = simulation | map {[it[1], it[4], it[7], it[9]]} | fast_machina 
+        fast_machina_results = simulation | map {[it[1], it[5], it[8], it[10]]} | fast_machina 
         fast_machina_results | map {
             inferred_labeling, inferred_migration_graph, timing, id ->
 
@@ -203,7 +204,7 @@ workflow {
     }
    
     if (params.methods.contains('parsimony')) {
-        parsimony_results = simulation | map {[it[1], it[4], it[7], it[9]]} | parsimony 
+        parsimony_results = simulation | map {[it[1], it[5], it[8], it[10]]} | parsimony 
         parsimony_results | map {
             inferred_labeling, inferred_migration_graph, timing, id ->
 
@@ -216,7 +217,7 @@ workflow {
     }
 
     if (params.methods.contains('exact_tnet')) { 
-        exact_tnet_results = simulation | map {[it[1], it[4], it[7], it[9]]} | exact_tnet 
+        exact_tnet_results = simulation | map {[it[1], it[5], it[8], it[10]]} | exact_tnet 
         exact_tnet_results | map {
             inferred_labeling, inferred_migration_graph, timing, id ->
 
@@ -229,7 +230,7 @@ workflow {
     }
 
     if (params.methods.contains('tnet')) { 
-        tnet_results = simulation | map {[it[1], it[4], it[7], it[9]]} | create_tnet_input | tnet 
+        tnet_results = simulation | map {[it[1], it[5], it[8], it[10]]} | create_tnet_input | tnet 
         tnet_results | map {
             inferred_labeling, inferred_migration_graph, timing, id ->
 
@@ -242,7 +243,7 @@ workflow {
     }
 
     if (params.methods.contains('machina')) {
-        machina_input = simulation | map {[it[0], it[2], it[4], it[7], it[9]]} | create_machina_input | map {
+        machina_input = simulation | map {[it[0], it[2], it[5], it[8], it[10]]} | create_machina_input | map {
             root_label = it[1].text.trim()
             setting_map = ["polyclonal_tree": 1, "polyclonal_dag": 2]
             setting = setting_map[it[4]]
