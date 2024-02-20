@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import math
 
 import pandas as pd
 import numpy as np
@@ -377,11 +378,50 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
 
     return T_induced
 
+"""
+Stochastically pertubs T using NNI operations.
+"""
+def stochastic_nni(T, error_rate=0.30):
+    T = T.copy()
+
+    internal_edges = [(u, v) for (u, v) in T.edges if T.out_degree(v) != 0]
+    num_perturbations = math.floor(len(internal_edges) * error_rate)
+    count = 0
+    while count < num_perturbations:
+        internal_edges = [(u, v) for (u, v) in T.edges if T.out_degree(v) != 0]
+        idx = np.random.choice(len(internal_edges))
+        u, v = internal_edges[idx]
+
+        if T.out_degree(v) == 0:
+            continue
+
+        u_children = list(set(T[u].keys()) - set([v]))
+        v_children = list(T[v].keys())
+
+        u_edges = [(u, w) for w in u_children]
+        v_edges = [(v, w) for w in v_children]
+        if not u_edges or not v_edges:
+            continue
+
+        u, w = u_edges[np.random.choice(len(u_edges))]
+        v, z = v_edges[np.random.choice(len(v_edges))]
+
+        # swap e1 and e2
+        T.remove_edge(u, w) 
+        T.remove_edge(v, z)
+        T.add_edge(v, w)
+        T.add_edge(u, z) 
+
+        count += 1
+
+    return T
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Simulate metastatic cancer evolution along a phylogenetic tree.")
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
     parser.add_argument("-o", "--output", help="Output prefix", default="result")
     parser.add_argument("-n", help="Number of leaves to sample", type=int, default=200)
+    parser.add_argument("-e", "--error-rate", help="Error rate (default: 0.00)", type=float, default=0.00)
     parser.add_argument("--generations", help="Number of generations", type=int, default=40)
     parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=2e-7)
     parser.add_argument("--driver-fitness", help="Driver mutation fitness effect", type=float, default=0.1)
@@ -413,6 +453,11 @@ if __name__ == "__main__":
     np.random.seed(args.random_seed)
     T = simulate_evolution(params, args.n, args.generations)
 
+    if args.error_rate > 0:
+        T_perturbed = stochastic_nni(T, args.error_rate)
+    else:
+        T_perturbed = T
+
     migration_graph = nx.DiGraph()
     for (u, v) in T.edges():
         if u.anatomical_site == v.anatomical_site:
@@ -422,6 +467,10 @@ if __name__ == "__main__":
 
     with open(f"{args.output}_tree_edgelist.tsv", "w") as f:
         for (i, j) in T.edges:
+            f.write(f"s{i.identifier}\ts{j.identifier}\n")
+
+    with open(f"{args.output}_perturbed_tree_edgelist.tsv", "w") as f:
+        for (i, j) in T_perturbed.edges:
             f.write(f"s{i.identifier}\ts{j.identifier}\n")
 
     with open(f"{args.output}_labeling.csv", "w") as f:
