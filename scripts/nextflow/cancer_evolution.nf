@@ -44,7 +44,7 @@ process fast_machina {
     time '4h'
     stageInMode 'copy'
 
-    publishDir "${params.output_dir}/fast_machina/n${cells}_m${mrate}_s${seed}_${setting}", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/fast_machina/${id}", mode: 'copy', overwrite: true
 
     input:
         tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
@@ -64,7 +64,7 @@ process parsimony {
     time '4h'
     stageInMode 'copy'
 
-    publishDir "${params.output_dir}/parsimony/n${cells}_m${mrate}_s${seed}_${setting}", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/parsimony/${id}", mode: 'copy', overwrite: true
 
     input:
         tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
@@ -84,7 +84,7 @@ process exact_tnet {
     time '4h'
     stageInMode 'copy'
 
-    publishDir "${params.output_dir}/exact_tnet/n${cells}_m${mrate}_s${seed}_${setting}", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/exact_tnet/${id}", mode: 'copy', overwrite: true
 
     input:
         tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
@@ -125,7 +125,7 @@ process machina {
     errorStrategy 'ignore'
     stageInMode 'copy'
 
-    publishDir "${params.output_dir}/machina/n${cells}_m${mrate}_s${seed}_${setting}", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/machina/${id}", mode: 'copy', overwrite: true
 
     input:
         tuple path(leaf_labeling), path(edgelist), path(coloring), val(root_label), val(setting), val(id)
@@ -165,7 +165,7 @@ process tnet {
     time '59m'
     stageInMode 'copy'
     
-    publishDir "${params.output_dir}/tnet/n${cells}_m${mrate}_s${seed}_${setting}", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/tnet/${id}", mode: 'copy', overwrite: true
 
     input:
         tuple path(tnet_input), path(leaf_labeling), path(edgelist), val(setting), val(id)

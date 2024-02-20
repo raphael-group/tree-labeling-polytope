@@ -8,6 +8,7 @@ import networkx as nx
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Score the result of ancestral reconstruction.")
+    parser.add_argument("perturbed_tree", help="Perturbed tree in edgelist format")
     parser.add_argument("tree", help="True tree in edgelist format")
     parser.add_argument("vertex_labeling", help="True vertex labeling in CSV format")
     parser.add_argument("inferred_vertex_labeling", help="Inferred vertex labeling in CSV format")
@@ -53,6 +54,7 @@ def main():
     args = parse_args()
 
     tree = nx.read_edgelist(args.tree, nodetype=str, create_using=nx.DiGraph())
+    perturbed_tree = nx.read_edgelist(args.perturbed_tree, nodetype=str, create_using=nx.DiGraph())
     true_labeling = pd.read_csv(args.vertex_labeling).set_index("vertex")
     inferred_labeling = pd.read_csv(args.inferred_vertex_labeling).set_index("vertex")
 
@@ -65,7 +67,7 @@ def main():
 
     # construct true and inferred migration graphs
     true_migration_graph = construct_migration_graph(true_labeling, tree)
-    inferred_migration_graph = construct_migration_graph(inferred_labeling, tree)
+    inferred_migration_graph = construct_migration_graph(inferred_labeling, perturbed_tree)
 
     # compute the number of correctly labeled vertices
     num_correctly_labeled = 0
