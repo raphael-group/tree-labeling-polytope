@@ -191,13 +191,15 @@ def simulate_migration(T, generation, params):
     # compute probability of migration *from* each site
     migration_probs = {}
     for site in anatomical_sites:
-        phenotypes = site_to_phenotypes[site]
-        log_migration_prob = np.log(params.migration_rate)
-        for phen in phenotypes:
-            N = N_cs[(site, phen)]
-            log_migration_prob += np.log(N)
-            log_migration_prob += np.log(len(phen))
-        migration_probs[site] = np.exp(log_migration_prob)
+        # phenotypes = site_to_phenotypes[site]
+        # log_migration_prob = np.log(params.migration_rate)
+        # for phen in phenotypes:
+            # N = N_cs[(site, phen)]
+            # log_migration_prob += np.log(N)
+            # log_migration_prob += np.log(len(phen))
+        # print(np.exp(log_migration_prob))
+        # migration_probs[site] = np.exp(log_migration_prob)
+        migration_probs[site] = params.migration_rate * len(sites_to_cell_idxs[site])
 
     def new_anatomical_site_fn(parent_site):
         new_anatomical_site = max(all_anatomical_sites) + 1
@@ -384,7 +386,7 @@ def parse_args():
     parser.add_argument("--driver-prob", help="Driver mutation probability", type=float, default=2e-7)
     parser.add_argument("--driver-fitness", help="Driver mutation fitness effect", type=float, default=0.1)
     parser.add_argument("--passenger-fitness", help="Passenger mutation fitness effect", type=float, default=0)
-    parser.add_argument("--carrying-capacity", help="Carrying capacity", type=int, default=1000)
+    parser.add_argument("--carrying-capacity", help="Carrying capacity", type=int, default=5000)
     parser.add_argument("--mutation-rate", help="Mutation rate", type=float, default=0.1)
     parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-15)
     parser.add_argument(

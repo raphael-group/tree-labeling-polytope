@@ -5,12 +5,12 @@ params.scripts_dir = "${params.proj_dir}/scripts/"
 params.python     = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/python"
 params.machina    = "/n/fs/ragr-data/bin/pmh"
 
-params.ncells   = [10, 15, 20, 25, 50, 100]                // number of sampled cells
-params.mrate    = [1e-11, 1e-12, 1e-13, 1e-14]             // migration rate
-params.settings = ['polyclonal_tree', 'polyclonal_dag']    // structure
-params.seeds    = [1, 2, 3, 4]          // random parameter
+params.ncells   = [250, 500, 1000]                                          // number of sampled cells
+params.mrate    = [1e-3]                                                    // migration rate
+params.settings = ['monoclonal_tree', 'polyclonal_tree', 'polyclonal_dag']  // structure
+params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]                   // random parameter
 
-params.methods  = ['tnet'] // ['exact_tnet', 'fast_machina', 'parsimony']
+params.methods  = ['tnet', 'fast_machina', 'parsimony']
 // params.methods = ['machina']
 
 process create_sim {
@@ -28,14 +28,14 @@ process create_sim {
         val(setting), val(seed), val("n${cells}_m${mrate}_s${seed}_${setting}")
 
     """
-    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting}
+    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44
     tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
     """
 }
 
 process fast_machina {
     cpus 8
-    memory '8 GB'
+    memory '16 GB'
     time '4h'
 
     input:
@@ -45,13 +45,14 @@ process fast_machina {
         tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
 
     """
+    module load gurobi
     /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c ${setting} -o inferred 2>> timing.txt
     """
 }
 
 process parsimony {
     cpus 8
-    memory '8 GB'
+    memory '16 GB'
     time '4h'
 
     input:
@@ -61,13 +62,14 @@ process parsimony {
         tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
 
     """
+    module load gurobi
     /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c none -o inferred 2>> timing.txt
     """
 }
 
 process exact_tnet {
     cpus 8
-    memory '8 GB'
+    memory '16 GB'
     time '4h'
 
     input:
@@ -77,6 +79,7 @@ process exact_tnet {
         tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
 
     """
+    module load gurobi
     /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py exact_tnet ${edgelist} ${leaf_labeling} -o inferred 2>> timing.txt
     """
 }
@@ -126,7 +129,6 @@ process create_tnet_input {
     cpus 1
     memory '4 GB'
     time '59m'
-    stageInMode 'copy'
 
     input: 
         tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
@@ -140,10 +142,9 @@ process create_tnet_input {
 }
 
 process tnet {
-    cpus 1
-    memory '4 GB'
+    cpus 8
+    memory '16 GB'
     time '59m'
-    stageInMode 'copy'
 
     input:
         tuple path(tnet_input), path(leaf_labeling), path(edgelist), val(setting), val(id)
@@ -154,6 +155,7 @@ process tnet {
     """
     /usr/bin/time -v ${params.python} ${params.scripts_dir}/tnet.py ${tnet_input} tnet_output_network.tsv 2>> timing.txt
     ${params.python} ${params.scripts_dir}/processing/create_weights_from_network.py tnet_output_network.tsv > network_weights.csv
+    module load gurobi
     ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -w network_weights.csv -c none -o inferred
     """
 }
@@ -179,15 +181,14 @@ workflow {
         cells, labels, setting, seed, id ->
 
         output_prefix = "${params.output_dir}/ground_truth/${id}"
-        labeling.copyTo("${output_prefix}_labeling.csv")
-        leaf_labeling_csv.copyTo("${output_prefix}_leaf_labeling.csv")
-        leaf_labeling_tsv.copyTo("${output_prefix}_leaf_labeling.tsv")
-        migration_graph.copyTo("${output_prefix}_migration_graph.csv")
-        edgelist.copyTo("${output_prefix}_tree_edgelist.csv")
+        "cp ${labeling} ${output_prefix}_labeling.csv".execute()
+        "cp ${leaf_labeling_csv} ${output_prefix}_leaf_labeling.csv".execute()
+        "cp ${leaf_labeling_tsv} ${output_prefix}_leaf_labeling.tsv".execute()
+        "cp ${migration_graph} ${output_prefix}_migration_graph.csv".execute()
+        "cp ${edgelist} ${output_prefix}_tree_edgelist.csv".execute()
     }
 
     // run all methods
-   
     if (params.methods.contains('fast_machina')) {
         fast_machina_results = simulation | map {[it[1], it[4], it[7], it[9]]} | fast_machina 
         fast_machina_results | map {
@@ -195,9 +196,9 @@ workflow {
 
             output_prefix = "${params.output_dir}/fast_machina/${id}"
 
-            inferred_labeling.copyTo("${output_prefix}_labeling.csv")
-            inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
-            timing.copyTo("${output_prefix}_timing.txt")
+            "cp ${inferred_labeling} ${output_prefix}_labeling.csv".execute()
+            "cp ${inferred_migration_graph} ${output_prefix}_migration_graph.csv".execute()
+            "cp ${timing} ${output_prefix}_timing.txt".execute()
         }
     }
    
@@ -208,9 +209,9 @@ workflow {
 
             output_prefix = "${params.output_dir}/parsimony/${id}"
 
-            inferred_labeling.copyTo("${output_prefix}_labeling.csv")
-            inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
-            timing.copyTo("${output_prefix}_timing.txt")
+            "cp ${inferred_labeling} ${output_prefix}_labeling.csv".execute()
+            "cp ${inferred_migration_graph} ${output_prefix}_migration_graph.csv".execute()
+            "cp ${timing} ${output_prefix}_timing.txt".execute()
         }
     }
 
@@ -221,9 +222,9 @@ workflow {
 
             output_prefix = "${params.output_dir}/exact_tnet/${id}"
 
-            inferred_labeling.copyTo("${output_prefix}_labeling.csv")
-            inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
-            timing.copyTo("${output_prefix}_timing.txt")
+            "cp ${inferred_labeling} ${output_prefix}_labeling.csv".execute()
+            "cp ${inferred_migration_graph} ${output_prefix}_migration_graph.csv".execute()
+            "cp ${timing} ${output_prefix}_timing.txt".execute()
         }
     }
 
@@ -234,9 +235,9 @@ workflow {
 
             output_prefix = "${params.output_dir}/tnet/${id}"
 
-            inferred_labeling.copyTo("${output_prefix}_labeling.csv")
-            inferred_migration_graph.copyTo("${output_prefix}_migration_graph.csv")
-            timing.copyTo("${output_prefix}_timing.txt")
+            "cp ${inferred_labeling} ${output_prefix}_labeling.csv".execute()
+            "cp ${inferred_migration_graph} ${output_prefix}_migration_graph.csv".execute()
+            "cp ${timing} ${output_prefix}_timing.txt".execute()
         }
     }
 
@@ -252,8 +253,8 @@ workflow {
         machina_results | map {
             inferred_labeling, timing, id ->
             output_prefix = "${params.output_dir}/machina/${id}"
-            inferred_labeling.copyTo("${output_prefix}_labeling.csv")
-            timing.copyTo("${output_prefix}_timing.txt")
+            "cp ${inferred_labeling} ${output_prefix}_labeling.csv".execute()
+            "cp ${timing} ${output_prefix}_timing.txt".execute()
         }
     }
 }

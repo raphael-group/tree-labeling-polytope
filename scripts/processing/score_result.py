@@ -119,6 +119,8 @@ def main():
         }
     }
 
+    result['migration_graph_num_edges'] = true_migration_graph.number_of_edges()
+    result['migration_graph_num_vertices'] = true_migration_graph.number_of_nodes()
     result['num_correctly_labeled'] = num_correctly_labeled
     result['num_vertices'] = len(tree.nodes)
     result['true_parsimony_score'] = true_parsimony_score
