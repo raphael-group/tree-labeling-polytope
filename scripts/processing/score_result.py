@@ -79,14 +79,16 @@ def main():
 
     # compute the true parsimony score and the inferred parsimony score
     true_parsimony_score = 0
-    inferred_parsimony_score = 0
     for u, v in tree.edges:
         true_label_u = true_labeling.loc[u, "label"]
         true_label_v = true_labeling.loc[v, "label"]
-        inferred_label_u = inferred_labeling.loc[u, "label"]
-        inferred_label_v = inferred_labeling.loc[v, "label"]
         if true_label_u != true_label_v:
             true_parsimony_score += 1
+
+    inferred_parsimony_score = 0
+    for u, v in perturbed_tree.edges:
+        inferred_label_u = inferred_labeling.loc[u, "label"]
+        inferred_label_v = inferred_labeling.loc[v, "label"]
         if inferred_label_u != inferred_label_v:
             inferred_parsimony_score += 1
 
