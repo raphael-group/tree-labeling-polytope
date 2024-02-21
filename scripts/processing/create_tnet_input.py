@@ -3,6 +3,41 @@ import sys
 import pandas as pd
 import networkx as nx
 
+def arbitrarily_resolve_polytomies(T):
+    T = T.copy()
+
+    clade_idx = 1
+
+    for u in list(T.nodes):
+        children = list(T[u].keys())
+
+        if len(children) <= 2:
+            continue
+
+        for v in children:
+            T.remove_edge(u, v)
+
+        us = []
+        for i in range(len(children) - 2):
+            new_u = f'clade_{clade_idx}'
+            T.add_node(new_u)
+            us.append(new_u)
+            clade_idx += 1
+
+            if i == 0:
+                T.add_edge(u, new_u)
+            else:
+                T.add_edge(us[i - 1], new_u)
+
+        us = [u] + us 
+        assert len(us) + 1 == len(children)
+
+        T.add_edge(us[-1], children[-1])
+        for w, v in zip(us, children[:-1]):
+            T.add_edge(w, v)
+
+    return T
+
 def to_newick(tree, root, leaf_labeling):
     def dfs(node):
         if len(list(tree.successors(node))) == 0:
@@ -45,6 +80,7 @@ if __name__ == "__main__":
         if not has_rank_two_nodes:
             break
        
+    tree = arbitrarily_resolve_polytomies(tree)
     leaf_labeling = pd.read_csv(args.leaf_labeling).set_index('leaf')
     root = list(nx.topological_sort(tree))[0]
     print(to_newick(tree, root, leaf_labeling))

@@ -475,8 +475,8 @@ if __name__ == "__main__":
 
     with open(f"{args.output}_leaf_labeling.csv", "w") as f:
         f.write("leaf,label\n")
-        for cell in T.nodes:
-            if len(list(T.successors(cell))) == 0:
+        for cell in T_perturbed.nodes:
+            if len(list(T_perturbed.successors(cell))) == 0:
                 f.write(f"s{cell.identifier},{cell.anatomical_site}\n")
 
     with open(f"{args.output}_migration_graph.csv", "w") as f:

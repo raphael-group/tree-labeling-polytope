@@ -5,11 +5,10 @@ params.scripts_dir = "${params.proj_dir}/scripts/"
 params.python     = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/python"
 params.machina    = "/n/fs/ragr-data/bin/pmh"
 
-params.ncells   = [100, 250, 500, 1000]                                     // number of sampled cells
+params.ncells   = [250, 500, 750, 1000]                                     // number of sampled cells
 params.mrate    = [1e-3]                                                    // migration rate
-params.settings = ['polyclonal_tree', 'polyclonal_dag']                     // structure
-params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 
-                   12, 13, 14, 15, 16, 17, 18, 19, 20]                      // random parameter
+params.settings = ['polyclonal_tree', 'polyclonal_dag']                                        // structure
+params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]       // random parameter
 
 params.methods  = ['tnet', 'fast_machina', 'parsimony']
 // params.methods = ['machina']
@@ -33,7 +32,7 @@ process create_sim {
         path("sim_colored_tree.svg"), path("sim_color_graph.svg")
 
     """
-    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e 0.8
+    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e 10
     tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
     ${params.python} ${params.scripts_dir}/plots/draw_colored_tree.py sim_tree_edgelist.tsv sim_labeling.csv -o sim --svg
     """

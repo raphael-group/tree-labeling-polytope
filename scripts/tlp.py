@@ -81,27 +81,6 @@ def append_migrations(model, T, character_set):
 
 """
 Constrain the tree labeling polytope to only allow certain migration graphs
-by explicitly adding constraints to the model.
-"""
-def constrain_migration_graphs(model, character_set, constraint_type):
-    logger.info("Adding migration graph constraints.")
-    model.migration_graph_constraints = pyo.ConstraintList()
-    if constraint_type == "polyclonal_tree":
-        for S in itertools.chain.from_iterable(itertools.combinations(character_set, r) for r in range(2, len(character_set))):
-            model.migration_graph_constraints.add(
-                sum(model.migrations[(i, j)] for i in S for j in S if i != j) <= len(S) - 1
-            )
-    elif constraint_type == "polyclonal_dag":
-        for S in itertools.chain.from_iterable(itertools.combinations(character_set, r) for r in range(2, len(character_set))):
-            for C in itertools.permutations(S):
-                model.migration_graph_constraints.add(
-                    sum(model.migrations[(C[i], C[(i+1) % len(C)])] for i in range(len(C))) <= len(C) - 1
-                )
-    else:
-        raise ValueError(f"Unknown constraint type: {constraint_type}")
-
-"""
-Constrain the tree labeling polytope to only allow certain migration graphs
 by adding constraints to the model using a Gurobi callback.
 """
 def setup_fast_machina_constraints(solver, model, character_set, constraint_type):
@@ -155,10 +134,39 @@ def setup_fast_machina_constraints(solver, model, character_set, constraint_type
 Solves a generalization of the MACHINA parsimonious migration 
 history problem using the tree labeling polytope.
 """
-def fast_machina(tree, character_set, leaf_f, dist_f, args):
+def fast_machina(tree, character_set, leaf_f, dist_f, root, args, heuristic=True):
+    tree = tree.copy()
+
+    Bv = defaultdict()
+    for v in nx.dfs_postorder_nodes(tree, source=root):
+        if is_leaf(tree, v):
+            Bv[v] = set([leaf_f(v)])
+        else:
+            Bv[v] = set()
+            for u in tree[v]:
+                Bv[v] = Bv[v] | Bv[u]
+
+    node_to_ancestor_map = {}
+    while True:
+        removed = False
+        for v in nx.dfs_preorder_nodes(tree, source=root):
+            if len(Bv[v]) == 1 and tree.out_degree(v) != 0:
+                descendants = nx.descendants(tree, v)
+                for u in descendants:
+                    tree.remove_node(u)
+                    node_to_ancestor_map[u] = v
+                removed = True
+                break
+        if not removed:
+            break
+
+    leaf_dict = {v:list(Bv[v])[0] for v in tree.nodes if is_leaf(tree, v)}
+    logger.info(f"Removed {len(node_to_ancestor_map)} nodes from the tree.")
+    leaf_f = lambda v: leaf_dict[v]
+
     solver = pyo.SolverFactory('gurobi_persistent')
 
-    model = create_tree_labeling_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
+    model = create_tree_labeling_polytope(tree, root, character_set, leaf_f, dist_f, root_label=args.label)
     if args.constraints != "none":
         append_migrations(model, tree, character_set)
 
@@ -183,12 +191,15 @@ def fast_machina(tree, character_set, leaf_f, dist_f, args):
                 vertex_labeling[u] = c1
                 vertex_labeling[v] = c2
 
+    for u in node_to_ancestor_map:
+        vertex_labeling[u] = vertex_labeling[node_to_ancestor_map[u]]
+
     return vertex_labeling
 
-def exact_tnet(tree, character_set, leaf_f, dist_f, args):
+def exact_tnet(tree, character_set, leaf_f, dist_f, root, args):
     solver = pyo.SolverFactory('gurobi')
 
-    model = create_tree_labeling_polytope(tree, args.root, character_set, leaf_f, dist_f, root_label=args.label)
+    model = create_tree_labeling_polytope(tree, root, character_set, leaf_f, dist_f, root_label=args.label)
     solver.solve(model, tee=True, warmstart=True)
 
     obj = model.objective()
@@ -198,19 +209,69 @@ def exact_tnet(tree, character_set, leaf_f, dist_f, args):
 
     logger.info(f"Optimal parsimony score: {obj}")
     logger.info(f"Adding back transmission constraints.")
+
     model.back_transmissions = pyo.Var(character_set, domain=pyo.Binary, initialize=1)
     model.back_transmission_constraints = pyo.ConstraintList()
-    for (u, v) in tree.edges:
-        e = (u, v)
-        child_edges = nx.bfs_edges(tree, source=v)
-        for e_prime in child_edges:
-            if e_prime == e:
-                continue
-            gener = ((i, j1, j2) for i in character_set for j1 in character_set for j2 in character_set if j1 != i or j2 != i)
-            for i, j1, j2 in gener:
-                model.back_transmission_constraints.add(
-                    model.decisions[u, v, i, j1] + model.decisions[e_prime[0], e_prime[1], j2, i] - 1 <= model.back_transmissions[i]
-                )
+
+    def back_transmission_callback(model, gb_model, where):
+        if where != GRB.Callback.MIPSOL:
+            return
+
+        # load solutions
+        gb_model.cbGetSolution([model.decisions[u, v, c1, c2] for u, v in tree.edges for c1 in character_set for c2 in character_set if c1 != c2])
+
+        tree_labeling = {}
+        for u, v in tree.edges:
+            for c1, c2 in itertools.product(character_set, character_set):
+                if model.decisions[u, v, c1, c2].value > 0.5:
+                    tree_labeling[u] = c1
+                    tree_labeling[v] = c2
+
+        character, node = None, None
+
+        B = defaultdict(lambda: defaultdict(-1))
+        # three states: -1, 0, 1, indicating have not seen c, have seen c but still c, have seen c but no longer c
+        for u, v in nx.bfs_edges(tree, source=root):
+            for c in character_set:
+                if tree_labeling[v] != c:
+                    if B[u][c] == 0: 
+                        B[v][c] = 1
+
+                if tree_labeling[v] == c:
+                    if B[u][c] == 1:
+                        character, node = c, v
+                        break
+                    else:
+                        B[v][c] = 0
+
+        if character is None:
+            return
+
+        logger.info(f"Adding back transmission constraint for {character} at {node}.")
+        u, v = list(tree.predecessors(node))[0], node
+        node = u
+        while node != root:
+            parent = list(tree.predecessors(node))[0]
+            for c1 in character_set:
+                for c2 in character_set:
+                    if c1 != c and c2 != c:
+                        cons = model.back_transmission_constraints.add(
+                            model.decisions[parent, node, character, c1] + model.decisions[u, v, c2, character] - 1 <= model.back_transmissions[character]
+                        )
+
+                        gb_model.cbLazy(cons)
+
+    # for (u, v) in tree.edges:
+        # e = (u, v)
+        # child_edges = nx.bfs_edges(tree, source=v)
+        # for e_prime in child_edges:
+            # if e_prime == e:
+                # continue
+            # gener = ((i, j1, j2) for i in character_set for j1 in character_set for j2 in character_set if j1 != i or j2 != i)
+            # for i, j1, j2 in gener:
+                # model.back_transmission_constraints.add(
+                    # model.decisions[u, v, i, j1] + model.decisions[e_prime[0], e_prime[1], j2, i] - 1 <= model.back_transmissions[i]
+                # )
 
     # minimize the number of back transmissions
     model.bt_objective = pyo.Objective(expr=sum(model.back_transmissions[c] for c in character_set), sense=pyo.minimize)
@@ -255,7 +316,7 @@ def parse_arguments():
                                 choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag", "none"],
                                 default="none")
     fast_machina_parser.add_argument("-o", "--output", help="Output prefix", default="result")
-    fast_machina_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
+    fast_machina_parser.add_argument("-r", "--root", help="Root of the tree", default=None)
     fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
     fast_machina_parser.add_argument("-w", "--weights", help="Weight of transitioning between labels", default=None)
 
@@ -281,6 +342,14 @@ if __name__ == "__main__":
 
     if not nx.is_weakly_connected(tree):
         raise ValueError("Graph is not connected, it is a forest.")
+
+    if args.root is not None:
+        root = args.root
+    else:
+        roots = [node for node in tree.nodes if len(list(tree.predecessors(node))) == 0]
+        if len(roots) != 1:
+            raise ValueError(f"Tree has {len(roots)} roots, please specify the root.")
+        root = roots[0]
 
     if args.weights is not None:
         weights = pd.read_csv(args.weights).set_index(["src", "dst"])
@@ -326,9 +395,9 @@ if __name__ == "__main__":
 
     # computes the vertex labeling using the specified method
     if args.method == "fast_machina":
-        vertex_labeling = fast_machina(tree, character_set, leaf_f, dist_f, args)
+        vertex_labeling = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
     elif args.method == "exact_tnet":
-        vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, args)
+        vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, root, args)
 
     # writes an optimal labeling to a file 
     with open(f"{args.output}_vertex_labeling.csv", "w") as f:
