@@ -41,7 +41,7 @@ process create_sim {
 process fast_machina {
     cpus 8
     memory '16 GB'
-    time '16h'
+    time '59m'
     stageInMode 'copy'
 
     publishDir "${params.output_dir}/fast_machina/${id}", mode: 'copy', overwrite: true

@@ -134,8 +134,13 @@ def setup_fast_machina_constraints(solver, model, character_set, constraint_type
 Solves a generalization of the MACHINA parsimonious migration 
 history problem using the tree labeling polytope.
 """
-def fast_machina(tree, character_set, leaf_f, dist_f, root, args, heuristic=True):
+def fast_machina(tree, character_set, leaf_f, dist_f, root, args):
     tree = tree.copy()
+
+    # TODO: 
+    #   1. When polyclonal tree, replace Bv with shortest chain from 
+    #      root to leaf using Lemma 4 in the paper.
+    #   2. Explore monoclonal tree and monoclonal dag settings.
 
     Bv = defaultdict()
     for v in nx.dfs_postorder_nodes(tree, source=root):
@@ -351,6 +356,7 @@ if __name__ == "__main__":
             raise ValueError(f"Tree has {len(roots)} roots, please specify the root.")
         root = roots[0]
 
+    # TODO: check triangle inequality for weights when provided
     if args.weights is not None:
         weights = pd.read_csv(args.weights).set_index(["src", "dst"])
 

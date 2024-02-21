@@ -1,10 +1,15 @@
 import argparse
 import json
 import re
+import sys
+import os
 
 import pandas as pd
 import numpy as np
 import networkx as nx
+
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+from maximum_parsimony import mp
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Score the result of ancestral reconstruction.")
@@ -40,13 +45,12 @@ def get_relations(G):
     for (u, v) in G.edges():
         relations.add((u, v))
 
-    # for u in G.nodes():
-        # for v in G.nodes():
-            # if u == v:
-                # continue
-    # 
-            # if nx.has_path(G, u, v):
-                # relations.add((u, v))
+    for u in G.nodes():
+        for v in G.nodes():
+            if u == v:
+                continue
+            if nx.has_path(G, u, v):
+                relations.add((u, v))
 
     return relations
 
@@ -69,11 +73,38 @@ def main():
     true_migration_graph = construct_migration_graph(true_labeling, tree)
     inferred_migration_graph = construct_migration_graph(inferred_labeling, perturbed_tree)
 
+    # run maximum parsimony on the true tree using the inferred migration graph
+    # to infer the labeling of the vertices
+    root = [u for u in tree.nodes if tree.in_degree(u) == 0][0]
+    inferred_edges = set([(u, v) for u, v in inferred_migration_graph.edges()])
+    character_set = list(true_migration_graph.nodes())
+
+    def dist_f(x, y):
+        if x == y:
+            return 0
+        if (x, y) in inferred_edges:
+            return 1
+        return np.inf
+
+    def leaf_f(node):
+        return true_labeling.loc[node, "label"]
+    
+    scores = mp(tree, root, character_set, leaf_f, dist_f)
+    labeling = {}
+    for node in nx.dfs_preorder_nodes(tree, root):
+        if node == root:
+            labeling[node] = min(character_set, key=lambda x: scores[node][x])
+            continue
+
+        parent = list(tree.predecessors(node))[0]
+        parent_label = labeling[parent]
+        labeling[node] = min(character_set, key=lambda x: scores[node][x] + dist_f(parent_label, x))
+
     # compute the number of correctly labeled vertices
     num_correctly_labeled = 0
     for vertex in tree.nodes:
         true_label = true_labeling.loc[vertex, "label"]
-        inferred_label = inferred_labeling.loc[vertex, "label"]
+        inferred_label = labeling[vertex]
         if true_label == inferred_label:
             num_correctly_labeled += 1
 
@@ -87,8 +118,8 @@ def main():
 
     inferred_parsimony_score = 0
     for u, v in perturbed_tree.edges:
-        inferred_label_u = inferred_labeling.loc[u, "label"]
-        inferred_label_v = inferred_labeling.loc[v, "label"]
+        inferred_label_u = labeling[u]
+        inferred_label_v = labeling[v]
         if inferred_label_u != inferred_label_v:
             inferred_parsimony_score += 1
 
