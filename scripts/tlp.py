@@ -102,15 +102,16 @@ def setup_fast_machina_constraints(solver, model, character_set, constraint_type
                     G.add_edge(i, j)
 
         try:
-            S = nx.find_cycle(G)
-            cycle_nodes = [i for (i,_) in S]
-            for C in itertools.permutations(cycle_nodes):
-                logger.info(f"Adding constraint {C} for cycle {S}.")
+            S = nx.find_cycle(G, orientation="original")
+            S = [i for (i,_,_) in S]
 
-                cons = model.migration_graph_constraints.add(
-                    sum(model.migrations[(C[i], C[(i+1) % len(C)])] for i in range(len(C))) <= len(C) - 1
-                )
-                gb_model.cbLazy(cons)
+            logger.info(f"Adding constraint for cycle {S}.")
+
+            cons = model.migration_graph_constraints.add(
+                sum(model.migrations[(S[i], S[(i+1) % len(S)])] for i in range(len(S))) <= len(S) - 1
+            )
+
+            gb_model.cbLazy(cons)
         except nx.exception.NetworkXNoCycle:
             pass
 
@@ -118,7 +119,7 @@ def setup_fast_machina_constraints(solver, model, character_set, constraint_type
     if constraint_type == "polyclonal_tree" or constraint_type == "monoclonal_tree":
         S = character_set
         model.migration_graph_constraints.add(
-            sum(model.migrations[(i, j)] for i in S for j in S if i != j) <= len(S) - 1
+            sum(model.migrations[(i, j)] for i in S for j in S if i != j) == len(S) - 1
         )
         solver.set_instance(model)
     elif constraint_type == "polyclonal_dag" or constraint_type == "monoclonal_dag":
@@ -130,11 +131,7 @@ def setup_fast_machina_constraints(solver, model, character_set, constraint_type
 
     return
 
-"""
-Solves a generalization of the MACHINA parsimonious migration 
-history problem using the tree labeling polytope.
-"""
-def fast_machina(tree, character_set, leaf_f, dist_f, root, args):
+def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
     tree = tree.copy()
 
     # TODO: 
@@ -168,12 +165,95 @@ def fast_machina(tree, character_set, leaf_f, dist_f, root, args):
     leaf_dict = {v:list(Bv[v])[0] for v in tree.nodes if is_leaf(tree, v)}
     logger.info(f"Removed {len(node_to_ancestor_map)} nodes from the tree.")
     leaf_f = lambda v: leaf_dict[v]
+    return tree, leaf_f, node_to_ancestor_map
 
+
+"""
+Solves a generalization of the MACHINA parsimonious migration 
+history problem using the tree labeling polytope.
+"""
+def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.05):
+    tree = tree.copy()
+
+    """ Step 1: Prune the tree to remove unnecessary nodes """
+    tree, leaf_f, node_to_ancestor_map = fast_machina_prune(tree, character_set, leaf_f, dist_f, root)
+
+    """ Step 2: Solve and round the LP relaxation to obtain an initial solution """
+    if args.constraints != "none":
+        logger.info("Solving LP relaxation of model to obtain initial feasible solution")
+        solver = pyo.SolverFactory('gurobi_persistent')
+
+        # setup relaxed model
+        model = create_tree_labeling_polytope(tree, root, character_set, leaf_f, dist_f, root_label=args.label)
+        append_migrations(model, tree, character_set)
+        setup_fast_machina_constraints(solver, model, character_set, args.constraints)
+
+        for i, j in model.migrations:
+            model.migrations[i, j].domain = pyo.NonNegativeReals
+            solver.update_var(model.migrations[i, j])
+
+        solver.solve(model, tee=True)
+
+        value_counts = defaultdict(int)
+        for i, j in model.migrations:
+            value_counts[model.migrations[i, j].value] += 1
+
+        # round the LP relaxation to obtain an initial migration graph
+        initial_solution = nx.DiGraph()
+        candidates = [(i, j) for i, j in model.migrations if model.migrations[i, j].value > 1e-4]
+        candidates = sorted(candidates, key=lambda x: model.migrations[x].value, reverse=True)
+        for i, j in candidates:
+            initial_solution.add_edge(i, j)
+            has_cycle = False
+            try:
+                orient = "original" if "dag" in args.constraints else "ignore"
+                nx.find_cycle(initial_solution, orientation=orient)
+                has_cycle = True
+            except nx.exception.NetworkXNoCycle:
+                pass
+
+            if has_cycle:
+                initial_solution.remove_edge(i, j)
+
+        # solve model with fixed migration graph
+        for i, j in model.migrations:
+            if initial_solution.has_edge(i, j):
+                cons = model.migration_constraints.add(model.migrations[i,j] == 1)
+            else:
+                cons = model.migration_constraints.add(model.migrations[i,j] == 0)
+            solver.add_constraint(cons)
+
+        solver.solve(model, tee=True)
+
+        # read the initial labeling from the LP relaxation
+        initial_labeling = {}
+        for u, v in tree.edges:
+            for c1, c2 in itertools.product(character_set, character_set):
+                if np.abs(model.decisions[u, v, c1, c2]()) > 0.5:
+                    initial_labeling[u] = c1
+                    initial_labeling[v] = c2
+
+    """ Step 3: Setup the MILP using Gurobi callbacks, if necessary """
     solver = pyo.SolverFactory('gurobi_persistent')
+
+    if "dummy_root" in tree.nodes:
+        tree.remove_node("dummy_root")
 
     model = create_tree_labeling_polytope(tree, root, character_set, leaf_f, dist_f, root_label=args.label)
     if args.constraints != "none":
         append_migrations(model, tree, character_set)
+
+        # setup initial solution
+        for i, j in model.migrations:
+            if initial_solution.has_edge(i, j):
+                model.migrations[i,j].value = 1
+            else:
+                model.migrations[i,j].value = 0
+        for u, v, i, j in model.decisions:
+            if initial_labeling[u] == i and initial_labeling[v] == j:
+                model.decisions[u, v, i, j].value = 1
+            else:
+                model.decisions[u, v, i, j].value = 0
 
     if args.constraints.startswith("monoclonal"):
         for c1, c2 in model.migrations:
@@ -186,7 +266,11 @@ def fast_machina(tree, character_set, leaf_f, dist_f, root, args):
     else:
         solver.set_instance(model)
 
-    solver.solve(model, tee=True)
+    """ Step 4: Solve the full MILP """
+    logger.info("Solving full MILP model")
+    solver.options["MIPGap"] = mip_gap
+    solver.options["MIPFocus"] = 2
+    solver.solve(model, tee=True, warmstart=True)
 
     # compute (an) optimal vertex labeling
     vertex_labeling = {}

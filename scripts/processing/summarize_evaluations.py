@@ -21,6 +21,7 @@ def load_files(directory):
                     negatives = content['pairwise_relations']['negatives']
                     false_positives = content['pairwise_relations']['false_positives']
                     false_negatives = content['pairwise_relations']['false_negatives']
+                    jaccard_index = content['pairwise_relations']['jaccard_index']
                     
                     row = {
                         'algorithm': algorithm,
@@ -39,7 +40,9 @@ def load_files(directory):
                         'negatives': negatives,
                         'false_positives': false_positives,
                         'false_negatives': false_negatives,
+                        'jaccard_index': jaccard_index
                     }
+
                     data.append(row)
 
     return pd.DataFrame(data)

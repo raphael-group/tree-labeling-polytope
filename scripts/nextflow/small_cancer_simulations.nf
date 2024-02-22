@@ -30,7 +30,7 @@ process create_sim {
         path("sim_colored_tree.svg"), path("sim_color_graph.svg")
 
     """
-    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e 0.5
+    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e 10
     tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
     ${params.python} ${params.scripts_dir}/plots/draw_colored_tree.py sim_tree_edgelist.tsv sim_labeling.csv -o sim --svg
     """
@@ -108,7 +108,7 @@ workflow {
 
     simulation = parameter_channel | create_sim 
 
-    fast_machina_results = simulation | map {[it[1], it[5], it[8], it[10]]} | fast_machina 
+    // fast_machina_results = simulation | map {[it[1], it[5], it[8], it[10]]} | fast_machina 
 
     machina_input = simulation | map {[it[0], it[2], it[5], it[8], it[10]]} | create_machina_input | map {
         root_label = it[1].text.trim()

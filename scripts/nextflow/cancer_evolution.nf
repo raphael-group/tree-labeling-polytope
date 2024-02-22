@@ -7,11 +7,11 @@ params.machina    = "/n/fs/ragr-data/bin/pmh"
 
 params.ncells   = [250, 500, 750, 1000]                                     // number of sampled cells
 params.mrate    = [1e-3]                                                    // migration rate
-params.settings = ['polyclonal_tree', 'polyclonal_dag']                                        // structure
+params.settings = ['polyclonal_tree', 'polyclonal_dag']                     // structure
 params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]       // random parameter
 
-params.methods  = ['tnet', 'fast_machina', 'parsimony']
-// params.methods = ['machina']
+// params.methods  = ['tnet', 'fast_machina', 'parsimony']
+params.methods = ['fast_machina']
 
 process create_sim {
     cpus 1
@@ -39,10 +39,11 @@ process create_sim {
 }
 
 process fast_machina {
-    cpus 8
+    cpus 16
     memory '16 GB'
-    time '59m'
+    time '24h'
     stageInMode 'copy'
+    errorStrategy 'ignore'
 
     publishDir "${params.output_dir}/fast_machina/${id}", mode: 'copy', overwrite: true
 

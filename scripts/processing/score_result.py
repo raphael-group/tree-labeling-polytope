@@ -141,6 +141,9 @@ def main():
     else:
         fnr = len(false_negatives) / len(positives)
 
+    # compute Jaccard index
+    jaccard_index = len(inferred_relations.intersection(true_relations)) / len(inferred_relations.union(true_relations))
+
     result = {
         'pairwise_relations': {
             'false_positive_rate': fpr,
@@ -150,7 +153,8 @@ def main():
             'true_positives': len(positives) - len(false_negatives),
             'true_negatives': len(negatives) - len(false_positives),
             'positives': len(positives),
-            'negatives': len(negatives)
+            'negatives': len(negatives),
+            'jaccard_index': jaccard_index
         }
     }
 
