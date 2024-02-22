@@ -172,7 +172,7 @@ def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
 Solves a generalization of the MACHINA parsimonious migration 
 history problem using the tree labeling polytope.
 """
-def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.05):
+def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.10):
     tree = tree.copy()
 
     """ Step 1: Prune the tree to remove unnecessary nodes """
@@ -198,40 +198,8 @@ def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.05):
         for i, j in model.migrations:
             value_counts[model.migrations[i, j].value] += 1
 
-        # round the LP relaxation to obtain an initial migration graph
-        initial_solution = nx.DiGraph()
-        candidates = [(i, j) for i, j in model.migrations if model.migrations[i, j].value > 1e-4]
-        candidates = sorted(candidates, key=lambda x: model.migrations[x].value, reverse=True)
-        for i, j in candidates:
-            initial_solution.add_edge(i, j)
-            has_cycle = False
-            try:
-                orient = "original" if "dag" in args.constraints else "ignore"
-                nx.find_cycle(initial_solution, orientation=orient)
-                has_cycle = True
-            except nx.exception.NetworkXNoCycle:
-                pass
-
-            if has_cycle:
-                initial_solution.remove_edge(i, j)
-
-        # solve model with fixed migration graph
-        for i, j in model.migrations:
-            if initial_solution.has_edge(i, j):
-                cons = model.migration_constraints.add(model.migrations[i,j] == 1)
-            else:
-                cons = model.migration_constraints.add(model.migrations[i,j] == 0)
-            solver.add_constraint(cons)
-
-        solver.solve(model, tee=True)
-
-        # read the initial labeling from the LP relaxation
-        initial_labeling = {}
-        for u, v in tree.edges:
-            for c1, c2 in itertools.product(character_set, character_set):
-                if np.abs(model.decisions[u, v, c1, c2]()) > 0.5:
-                    initial_labeling[u] = c1
-                    initial_labeling[v] = c2
+        # round the LP relaxation to obtain an initial set of migrations
+        candidate_migrations = [(i, j) for i, j in model.migrations if model.migrations[i, j].value > 1e-7]
 
     """ Step 3: Setup the MILP using Gurobi callbacks, if necessary """
     solver = pyo.SolverFactory('gurobi_persistent')
@@ -242,35 +210,37 @@ def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.05):
     model = create_tree_labeling_polytope(tree, root, character_set, leaf_f, dist_f, root_label=args.label)
     if args.constraints != "none":
         append_migrations(model, tree, character_set)
-
-        # setup initial solution
-        for i, j in model.migrations:
-            if initial_solution.has_edge(i, j):
-                model.migrations[i,j].value = 1
-            else:
-                model.migrations[i,j].value = 0
-        for u, v, i, j in model.decisions:
-            if initial_labeling[u] == i and initial_labeling[v] == j:
-                model.decisions[u, v, i, j].value = 1
-            else:
-                model.decisions[u, v, i, j].value = 0
-
     if args.constraints.startswith("monoclonal"):
         for c1, c2 in model.migrations:
             model.migration_constraints.add(
                 sum(model.decisions[u, v, c1, c2] for u, v in tree.edges) <= model.migrations[c1, c2]
             )
 
+    added_constraints = []
     if args.constraints != "none":
         setup_fast_machina_constraints(solver, model, character_set, args.constraints)
+
+        candidate_migrations = set(candidate_migrations)
+        model.heur_constraints = pyo.ConstraintList()
+        for i, j in model.migrations:
+            if (i, j) not in candidate_migrations:
+                con = model.heur_constraints.add(model.migrations[i, j] == 0)
+                solver.add_constraint(con)
+                added_constraints.append(con)
     else:
         solver.set_instance(model)
 
     """ Step 4: Solve the full MILP """
     logger.info("Solving full MILP model")
     solver.options["MIPGap"] = mip_gap
-    solver.options["MIPFocus"] = 2
     solver.solve(model, tee=True, warmstart=True)
+
+    # remove heuristic constraints and re-solve
+    if args.constraints != "none":
+        for c in added_constraints:
+            solver.remove_constraint(c)
+        model.heur_constraints.clear()
+        solver.solve(model, tee=True, warmstart=True)
 
     # compute (an) optimal vertex labeling
     vertex_labeling = {}
