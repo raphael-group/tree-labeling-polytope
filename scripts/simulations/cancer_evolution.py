@@ -150,6 +150,35 @@ def monoclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_
 
     return
 
+""" Simulate the migration of cells assuming the migration graph is arbitrary. """
+def arbitrary_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_site_fn):
+    k = np.random.poisson(mean_migrations)
+    migrating_cell_indices = np.random.choice(cells_to_migrate, k, replace=True)
+    migrating_cell_indices = np.unique(migrating_cell_indices)
+    for idx in migrating_cell_indices:
+        migrating_cell = generation[idx]
+
+        r = np.random.rand()
+        if r > 0.5:
+            new_site = new_site_fn(site)
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+        elif r < 0.1:
+            potential_sites = set(nx.ancestors(migration_graph, site))
+            if len(potential_sites) == 0:
+                continue
+
+            new_site = np.random.choice(list(potential_sites))
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+        else:
+            potential_sites = set(migration_graph.nodes())
+            if len(potential_sites) == 0:
+                continue
+
+            new_site = np.random.choice(list(potential_sites))
+            generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
+
+    return
+
 """
 Simulate the metastatic migration of cells in a generation.
 Taking a generation of cells as a list, we simulate the 
@@ -192,14 +221,6 @@ def simulate_migration(T, generation, params):
     # compute probability of migration *from* each site
     migration_probs = {}
     for site in anatomical_sites:
-        # phenotypes = site_to_phenotypes[site]
-        # log_migration_prob = np.log(params.migration_rate)
-        # for phen in phenotypes:
-            # N = N_cs[(site, phen)]
-            # log_migration_prob += np.log(N)
-            # log_migration_prob += np.log(len(phen))
-        # print(np.exp(log_migration_prob))
-        # migration_probs[site] = np.exp(log_migration_prob)
         migration_probs[site] = params.migration_rate * len(sites_to_cell_idxs[site])
 
     def new_anatomical_site_fn(parent_site):
@@ -227,6 +248,8 @@ def simulate_migration(T, generation, params):
             monoclonal_tree_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
         elif params.structure == "monoclonal_dag":
             monoclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
+        else:
+            arbitrary_migration(mean_migrations, cells_to_migrate, site, migration_graph, generation, new_anatomical_site_fn)
 
     return generation
 
@@ -426,7 +449,7 @@ def parse_args():
     parser.add_argument("--migration-rate", help="Migration rate", type=float, default=1e-15)
     parser.add_argument(
         "-s", "--structure", help="Migration graph structure",
-        choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag"],
+        choices=["polyclonal_tree", "polyclonal_dag", "monoclonal_tree", "monoclonal_dag", "none"],
         default="polyclonal_dag"
     )
     return parser.parse_args()
