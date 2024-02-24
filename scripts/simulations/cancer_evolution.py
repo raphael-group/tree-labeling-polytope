@@ -159,10 +159,10 @@ def arbitrary_migration(mean_migrations, cells_to_migrate, site, migration_graph
         migrating_cell = generation[idx]
 
         r = np.random.rand()
-        if r > 0.5:
+        if r > 0.66:
             new_site = new_site_fn(site)
             generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
-        elif r < 0.1:
+        elif r < 0.33:
             potential_sites = set(nx.ancestors(migration_graph, site))
             if len(potential_sites) == 0:
                 continue

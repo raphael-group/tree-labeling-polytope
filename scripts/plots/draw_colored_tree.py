@@ -54,11 +54,11 @@ def draw_colored_tree(T, labeling, color_map, f):
         if u in labeling.index:
             label = labeling.loc[u, 'label']
             color = rgb_tuple_to_hex(color_map[label])
-            f.write(f"\t{u} [label={label}, fillcolor=\"{color}\", style=filled];\n")
+            f.write(f"\t\"{u}\" [label=\"{label}\", fillcolor=\"{color}\", style=filled];\n")
         else:
-            f.write(f"\t{u};\n")
+            f.write(f"\t\"{u}\";\n")
     for u, v in T.edges():
-        f.write(f"\t{u} -> {v};\n")
+        f.write(f"\t\"{u}\" -> \"{v}\";\n")
     f.write("}\n")
 
 def make_color_graph(T, labeling, color_map):
@@ -79,13 +79,13 @@ def make_color_graph(T, labeling, color_map):
 def draw_color_graph(G, f, multi_edges=False):
     f.write("digraph G {\n")
     for u in G.nodes():
-        f.write(f"\t{u} [fillcolor=\"{G.nodes[u]['color']}\", style=filled];\n")
+        f.write(f"\t\"{u}\" [fillcolor=\"{G.nodes[u]['color']}\", style=filled];\n")
     for u, v in G.edges():
         if multi_edges:
             count = G[u][v]['count']
-            f.write(f"\t{u} -> {v} [label={count}];\n")
+            f.write(f"\t\"{u}\" -> \"{v}\" [label={count}];\n")
         else:
-            f.write(f"\t{u} -> {v};\n")
+            f.write(f"\t\"{u}\" -> \"{v}\";\n")
     f.write("}\n")
 
 def parse_args():

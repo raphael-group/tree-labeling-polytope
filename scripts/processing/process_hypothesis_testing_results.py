@@ -6,7 +6,7 @@ import networkx as nx
 
 base_path = 'nextflow_results/hypothesis_testing/fast_machina/'
 
-pattern = r'n(\d+)_m([0-9.]+)_s(\d+)_(.+)_vs_(.+)'
+pattern = r'n(\d+)_m([0-9.]+)_s(\d+)_e(\d+)_(.+)_vs_(.+)'
 results = []
 
 for file_path in glob.glob(os.path.join(base_path, '**', 'inferred_migration_graph.csv'), recursive=True):
@@ -14,12 +14,12 @@ for file_path in glob.glob(os.path.join(base_path, '**', 'inferred_migration_gra
     match = re.search(pattern, dir_name)
     if match:
         # Extract the matched groups
-        n, m, s, setting_1, setting_2 = match.groups()
+        n, m, s, e, setting_1, setting_2 = match.groups()
 
         df = pd.read_csv(file_path)
         parsimony = df['count'].sum()
 
-        true_migration_graph = f'nextflow_results/hypothesis_testing/ground_truth/n{n}_m{m}_s{s}_{setting_1}_vs_{setting_2}/sim_migration_graph.csv'
+        true_migration_graph = f'nextflow_results/hypothesis_testing/ground_truth/n{n}_m{m}_s{s}_e{e}_{setting_1}_vs_{setting_2}/sim_migration_graph.csv'
         df = pd.read_csv(true_migration_graph)
         G = nx.from_pandas_edgelist(df, 'src', 'dst', create_using=nx.DiGraph())
         print(G)
@@ -29,6 +29,7 @@ for file_path in glob.glob(os.path.join(base_path, '**', 'inferred_migration_gra
             'n': int(n),
             'm': float(m),
             's': int(s),
+            'e': int(e),
             'setting_1': setting_1,
             'setting_2': setting_2,
             'parsimony': parsimony,

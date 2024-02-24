@@ -8,7 +8,7 @@ params.machina    = "/n/fs/ragr-data/bin/pmh"
 params.ncells   = [500]                                                     // number of sampled cells
 params.mrate    = [1e-3]                                                    // migration rate
 params.settings = ['polyclonal_tree', 'polyclonal_dag', 'none']             // structure
-params.seeds    = 1..30
+params.seeds    = 1..200
 params.error    = [0, 5, 10]
 
 process create_sim {
@@ -40,7 +40,7 @@ process create_sim {
 process fast_machina {
     cpus 16
     memory '16 GB'
-    time '24h'
+    time '59m'
     stageInMode 'copy'
     errorStrategy 'ignore'
 
@@ -67,5 +67,5 @@ workflow {
                                .combine(channel.fromList(params.error))
 
     simulation = parameter_channel | create_sim 
-    fast_machina_results = simulation | map {[it[1], it[4], it[8], it[9], it[11]]} | fast_machina 
+    fast_machina_results = simulation | map {[it[1], it[5], it[8], it[9], it[11]]} | fast_machina 
   }
