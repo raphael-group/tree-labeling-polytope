@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import json
 
 import pandas as pd
 import numpy as np
@@ -253,7 +254,7 @@ def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.00):
     for u in node_to_ancestor_map:
         vertex_labeling[u] = vertex_labeling[node_to_ancestor_map[u]]
 
-    return vertex_labeling
+    return vertex_labeling, model.objective()
 
 def exact_tnet(tree, character_set, leaf_f, dist_f, root, args):
     solver = pyo.SolverFactory('gurobi')
@@ -357,7 +358,7 @@ def exact_tnet(tree, character_set, leaf_f, dist_f, root, args):
                 vertex_labeling[u] = c1
                 vertex_labeling[v] = c2
 
-    return vertex_labeling
+    return vertex_labeling, model.objective()
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -412,19 +413,14 @@ if __name__ == "__main__":
 
     # TODO: check triangle inequality for weights when provided
     if args.weights is not None:
-        weights = pd.read_csv(args.weights).set_index(["src", "dst"])
+        weights = pd.read_csv(args.weights).set_index(["parent", "child", "label1", "label2"])
 
         def dist_f(e, x, y):
-            if x is None or y is None:
+            if e[0] == "dummy_root":
                 return 0
 
-            if x == y:
-                return 0
-
-            if (x, y) in weights.index:
-                return weights.loc[(x, y), "weight"]
-
-            return 1
+            prob = weights.loc[(e[0], e[1], x, y), "probability"]
+            return -np.log(prob) if prob > 0 else 0
     else:
         # defines the distance function between characters x and y along an edge e
         def dist_f(e, x, y):
@@ -455,9 +451,15 @@ if __name__ == "__main__":
 
     # computes the vertex labeling using the specified method
     if args.method == "fast_machina":
-        vertex_labeling = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
+        vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
     elif args.method == "exact_tnet":
         vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, root, args)
+
+    # write the objective value to a file (json)
+    with open(f"{args.output}_results.json", "w") as f:
+        results = {}
+        results["objective"] = obj
+        f.write(json.dumps(results))
 
     # writes an optimal labeling to a file 
     with open(f"{args.output}_vertex_labeling.csv", "w") as f:
