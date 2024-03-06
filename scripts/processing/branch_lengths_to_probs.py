@@ -16,6 +16,7 @@ def parse_arguments():
         description="Converts a Newick file to a mutation probability file"
     )
 
+
     parser.add_argument(
         "tree"
     )
@@ -24,11 +25,24 @@ def parse_arguments():
         "labeling"
     )
 
+    parser.add_argument(
+        "-f", "--format",
+        default="newick",
+        choices=["newick", "edgelist"],
+        help="The format of the input tree file"
+    )
+
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_arguments()
-    tree = from_newick_get_nx_tree(args.tree)
+
+
+    if args.format == "newick":
+        tree = from_newick_get_nx_tree(args.tree)
+    else:
+        tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), data=(("weight", float),))
+
     labeling = pd.read_csv(args.labeling)
     labels = labeling['label'].unique().tolist()
     m = len(labels)

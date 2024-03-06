@@ -394,7 +394,11 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
 
-    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph())
+    try:
+        tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), data=(("weight", float),))
+    except Exception as e:
+        tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph())
+
     labels_csv = pd.read_csv(args.labels, sep=",").set_index("leaf")
 
     if not nx.is_directed_acyclic_graph(tree):
