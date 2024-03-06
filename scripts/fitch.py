@@ -1,10 +1,23 @@
 import pandas as pd
 import numpy as np
 import argparse
+import json
 import networkx as nx
 
+from loguru import logger
 from tqdm import tqdm
 from collections import defaultdict, deque
+
+def construct_migration_graph(tree, character_set, labeling):
+    G = nx.DiGraph()
+    for u, v in tree.edges:
+        if labeling[u] == labeling[v]: 
+            continue
+        if (labeling[u], labeling[v]) in G.edges:
+            continue
+        G.add_edge(labeling[u], labeling[v])
+
+    return G
 
 def is_leaf(T, node):
     return len(T[node]) == 0
@@ -60,6 +73,18 @@ def parse_arguments():
         "labels", help="Labels for the leaves"
     )
 
+    parser.add_argument(
+        "-s", "--samples", help="Number of optimal solutions to randomly sample", type=int, default=1000
+    )
+
+    parser.add_argument(
+        "-r", "--random-seed", help="Random seed for sampling", type=int, default=42
+    )
+
+    parser.add_argument(
+        "-o", "--output", help="Output file", default="output.json"
+    )
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -88,30 +113,46 @@ if __name__ == "__main__":
  
     character_set = set(labels_csv["label"].unique())
     scores = mp(tree, root, character_set, leaf_f, dist_f)
-
-    # backtrack to obtain ALL optimal solutions
+    
+    logger.info(f"Tree has {len(tree.nodes)} nodes")
+    logger.info(f"Character set has {len(character_set)} characters")
+   
     solutions = []
-    minimum_cost = min(scores[root].values())
-    for char in character_set:
-        if scores[root][char] == minimum_cost:
-            solutions.append({root: char})
-
-    for node in tqdm(list(nx.dfs_preorder_nodes(tree, root))):
-        if node == root: continue
-        parent = list(tree.predecessors(node))[0]
-        new_solutions = [] 
-        for solution in solutions:
+    np.random.seed(args.random_seed)
+    for _ in range(args.samples):
+        solution = {}
+        for node in nx.dfs_preorder_nodes(tree, root): 
+            if node == root: 
+                minimum_cost = min(scores[root].values())
+                solution[node] = np.random.choice([char for char in character_set if scores[root][char] == minimum_cost])
+                continue
+            
+            parent = list(tree.predecessors(node))[0]
             parent_char = solution[parent]
             min_cost = min([scores[node][char] + dist_f(parent_char, char) for char in character_set])
-            for char in character_set:
-               if scores[node][char] + dist_f(parent_char, char) == min_cost:
-                   new_solution = solution.copy()
-                   new_solution[node] = char
-                   new_solutions.append(new_solution)
-        assert len(new_solutions) >= len(solutions) 
-        assert len(solutions) > 0
-        solutions = new_solutions
-        print(len(solutions))
+            possible_chars = [char for char in character_set if scores[node][char] + dist_f(parent_char, char) == min_cost]
+            solution[node] = np.random.choice(possible_chars)
+        solutions.append(solution)
 
-    print(len(solutions))
-    
+    logger.info(f"Sampled {len(solutions)} optimal solutions")
+    migration_graph_statistics = {
+        "is_polyclonal_tree": 0,
+        "is_polyclonal_dag": 0,
+        "has_cycles": 0,
+        "num_sampled": len(solutions),
+        "num_nodes": len(tree.nodes),
+        "num_characters": len(character_set)
+    }
+
+    for solution in solutions:
+        G = construct_migration_graph(tree, character_set, solution)
+
+        if nx.is_tree(G):
+            migration_graph_statistics["is_polyclonal_tree"] += 1
+        elif nx.is_directed_acyclic_graph(G):
+            migration_graph_statistics["is_polyclonal_dag"] += 1
+        else:
+            migration_graph_statistics["has_cycles"] += 1
+
+    with open(args.output, "w") as f:
+        json.dump(migration_graph_statistics, f)
