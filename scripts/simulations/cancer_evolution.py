@@ -110,7 +110,7 @@ def polyclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_
     for idx in migrating_cell_indices:
         migrating_cell = generation[idx]
 
-        if np.random.rand() > 0.5:
+        if np.random.rand() > 0.85:
             new_site = new_site_fn(site)
             generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
         else:
@@ -441,8 +441,9 @@ def stochastic_spr(T, num_perturbations=10):
         if w == u:
             continue
 
+        removed_weight = T[u][v]['weight']
         T.remove_edge(u, v)
-        T.add_edge(w, v)
+        T.add_edge(w, v, weight=removed_weight)
 
         count += 1
 
@@ -450,6 +451,7 @@ def stochastic_spr(T, num_perturbations=10):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simulate metastatic cancer evolution along a phylogenetic tree.")
+    parser.add_argument("-a", "--attempts", help="Number of attempts", type=int, default=10)
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
     parser.add_argument("-o", "--output", help="Output prefix", default="simulation")
     parser.add_argument("-n", help="Number of leaves to sample", type=int, default=200)
@@ -483,7 +485,14 @@ if __name__ == "__main__":
     )
 
     np.random.seed(args.random_seed)
-    T = simulate_evolution(params, args.n, args.generations)
+
+    for _ in range(args.attempts):
+        try:
+            T = simulate_evolution(params, args.n, args.generations)
+            break
+        except Exception as e:
+            logger.error(e)
+            continue
 
     if args.errors > 0:
         T_perturbed = stochastic_spr(T, args.errors)

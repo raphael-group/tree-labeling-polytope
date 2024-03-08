@@ -25,10 +25,17 @@ def load_files(directory):
                     content['setting'] = setting
 
                     labeling = pd.read_csv(f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_labeling.csv").set_index('vertex')
-                    tree = nx.read_edgelist(
-                        f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_tree_edgelist.tsv", 
-                        create_using=nx.DiGraph
-                    )
+                    try:
+                        tree = nx.read_edgelist(
+                            f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_tree_edgelist.tsv", 
+                            create_using=nx.DiGraph,
+                            data=(("weight", float),)
+                        )
+                    except FileNotFoundError:
+                        tree = nx.read_edgelist(
+                            f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_tree_edgelist.tsv", 
+                            create_using=nx.DiGraph
+                        )
 
                     migration_graph = nx.DiGraph()
                     for u, v, d in tree.edges(data=True):

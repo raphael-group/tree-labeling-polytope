@@ -57,8 +57,8 @@ def get_relations(G):
 def main():
     args = parse_args()
 
-    tree = nx.read_edgelist(args.tree, nodetype=str, create_using=nx.DiGraph())
-    perturbed_tree = nx.read_edgelist(args.perturbed_tree, nodetype=str, create_using=nx.DiGraph())
+    tree = nx.read_edgelist(args.tree, nodetype=str, create_using=nx.DiGraph(), data=(('weight', float),))
+    perturbed_tree = nx.read_edgelist(args.perturbed_tree, nodetype=str, create_using=nx.DiGraph(), data=(('weight', float),))
     true_labeling = pd.read_csv(args.vertex_labeling).set_index("vertex")
     inferred_labeling = pd.read_csv(args.inferred_vertex_labeling).set_index("vertex")
 
@@ -144,6 +144,23 @@ def main():
     # compute Jaccard index
     jaccard_index = len(inferred_relations.intersection(true_relations)) / len(inferred_relations.union(true_relations))
 
+    # compute multiset symmetric difference between true and inferred migration graphs edge
+    # sets
+    true_edges = set(true_migration_graph.edges())
+    inferred_edges = set(inferred_migration_graph.edges())
+    multiset_symmetric_difference = 0
+    for edge in true_edges:
+        if edge not in inferred_edges:
+            multiset_symmetric_difference += true_migration_graph[edge[0]][edge[1]]["count"]
+        else:
+            multiset_symmetric_difference += max(true_migration_graph[edge[0]][edge[1]]["count"] - inferred_migration_graph[edge[0]][edge[1]]["count"], 0)
+
+    for edge in inferred_edges:
+        if edge not in true_edges:
+            multiset_symmetric_difference += inferred_migration_graph[edge[0]][edge[1]]["count"]
+        else:
+            multiset_symmetric_difference += max(inferred_migration_graph[edge[0]][edge[1]]["count"] - true_migration_graph[edge[0]][edge[1]]["count"], 0)
+
     result = {
         'pairwise_relations': {
             'false_positive_rate': fpr,
@@ -154,7 +171,9 @@ def main():
             'true_negatives': len(negatives) - len(false_positives),
             'positives': len(positives),
             'negatives': len(negatives),
-            'jaccard_index': jaccard_index
+            'jaccard_index': jaccard_index,
+            'multi_edgeset_symmetric_difference': multiset_symmetric_difference,
+            'edgeset_symmetric_difference': len(true_edges.symmetric_difference(inferred_edges)),
         }
     }
 

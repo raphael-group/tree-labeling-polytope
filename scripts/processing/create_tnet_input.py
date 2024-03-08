@@ -59,7 +59,7 @@ def parse_arguments():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph())
+    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), data=(("weight", float),))
     while True:
         has_rank_two_nodes = False
         nodes = list(tree)

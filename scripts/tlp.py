@@ -173,7 +173,7 @@ def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
 Solves a generalization of the MACHINA parsimonious migration 
 history problem using the tree labeling polytope.
 """
-def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.00):
+def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.05):
     tree = tree.copy()
 
     """ Step 1: Prune the tree to remove unnecessary nodes """

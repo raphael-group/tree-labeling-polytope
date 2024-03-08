@@ -90,7 +90,7 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
 
-    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph())
+    tree = nx.read_edgelist(args.tree, create_using=nx.DiGraph(), data=(("weight", float),))
     labels_csv = pd.read_csv(args.labels, sep=",").set_index("leaf")
 
     roots = [node for node in tree.nodes if len(list(tree.predecessors(node))) == 0]

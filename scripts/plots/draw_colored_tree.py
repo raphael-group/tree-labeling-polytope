@@ -38,7 +38,10 @@ def parse_tree(tree_file, format='adjacency_list'):
     if format == 'adjacency_list':
         return nx.read_adjlist(tree_file, create_using=nx.DiGraph())
     elif format == 'edgelist':
-        return nx.read_edgelist(tree_file, create_using=nx.DiGraph())
+        try:
+            return nx.read_edgelist(tree_file, create_using=nx.DiGraph(), data=(("weight", float),))
+        except:
+            return nx.read_edgelist(tree_file, create_using=nx.DiGraph())
     elif format == 'newick':
         return from_newick_get_nx_tree(tree_file)
     else:

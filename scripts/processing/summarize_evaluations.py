@@ -11,9 +11,9 @@ def load_files(directory):
             if file.endswith(".json"):
                 with open(os.path.join(directory, d, file), 'r') as f:
                     content = json.load(f)
-                    match = re.search(r'n(\d+)_m(1E-\d+|0.\d+)_s(\d+)_((poly|mono)clonal_(tree|dag))', d)
+                    match = re.search(r'n(\d+)_m(1E-\d+|0.\d+)_e(\d+)_s(\d+)_((poly|mono)clonal_(tree|dag))', d)
                     algorithm = d[:match.start() - 1]
-                    n, m, s, setting, _, _ = match.groups()
+                    n, m, s, e, setting, _, _ = match.groups()
 
                     false_positive_rate = content['pairwise_relations']['false_positive_rate']
                     false_negative_rate = content['pairwise_relations']['false_negative_rate']
@@ -22,12 +22,15 @@ def load_files(directory):
                     false_positives = content['pairwise_relations']['false_positives']
                     false_negatives = content['pairwise_relations']['false_negatives']
                     jaccard_index = content['pairwise_relations']['jaccard_index']
+                    edgeset_symmetric_difference = content['pairwise_relations']['edgeset_symmetric_difference']
+                    multi_edgeset_symmetric_difference = content['pairwise_relations']['multi_edgeset_symmetric_difference']
                     
                     row = {
                         'algorithm': algorithm,
                         'cells': n,
                         'migration_rate': float(m),
                         'seed': s,
+                        'error': e,
                         'setting': setting,
                         'elapsed_time': content['elapsed_time'],
                         'num_correctly_labeled': content['num_correctly_labeled'],
@@ -40,7 +43,9 @@ def load_files(directory):
                         'negatives': negatives,
                         'false_positives': false_positives,
                         'false_negatives': false_negatives,
-                        'jaccard_index': jaccard_index
+                        'jaccard_index': jaccard_index,
+                        'edgeset_symmetric_difference': edgeset_symmetric_difference,
+                        'multi_edgeset_symmetric_difference': multi_edgeset_symmetric_difference
                     }
 
                     data.append(row)

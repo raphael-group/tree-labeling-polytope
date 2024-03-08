@@ -5,11 +5,11 @@ params.scripts_dir = "${params.proj_dir}/scripts/"
 params.python     = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/python"
 params.machina    = "/n/fs/ragr-data/bin/pmh"
 
-params.ncells   = [500]                                                     // number of sampled cells
-params.mrate    = [1e-3]                                                    // migration rate
-params.settings = ['polyclonal_tree', 'polyclonal_dag', 'none']             // structure
-params.seeds    = 1..200
-params.error    = [0, 5, 10]
+params.ncells   = [500]                                                                                    // number of sampled cells
+params.mrate    = [5e-4]                                                                                   // migration rate
+params.settings = ['polyclonal_tree', 'polyclonal_dag', 'none']                                            // structure
+params.seeds    = 1..200                                                                                   // number of random seeds
+params.error    = [0, 5]                                                                                   // number of errors
 
 process create_sim {
     cpus 1
@@ -27,14 +27,15 @@ process create_sim {
         tuple path("sim_labeling.csv"), path("sim_leaf_labeling.csv"), path("sim_leaf_labeling.tsv"), 
         path("sim_migration_graph.csv"), path("sim_tree_edgelist.tsv"), path("sim_perturbed_tree_edgelist.tsv"),
         val(cells), val(mrate), val(input_setting), val(output_setting), val(seed), 
-        val("n${cells}_m${mrate}_s${seed}_e${error}_${input_setting}_vs_${output_setting}"), 
-        path("sim_colored_tree.svg"), path("sim_color_graph.svg")
+        val("n${cells}_m${mrate}_s${seed}_e${error}_${input_setting}_vs_${output_setting}")
+
+    //path("sim_colored_tree.svg"), path("sim_color_graph.svg")
 
     """
     ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${input_setting} --generations 44 -e ${error}
     tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
-    ${params.python} ${params.scripts_dir}/plots/draw_colored_tree.py sim_tree_edgelist.tsv sim_labeling.csv -o sim --svg
     """
+    // ${params.python} ${params.scripts_dir}/plots/draw_colored_tree.py sim_tree_edgelist.tsv sim_labeling.csv -o sim --svg
 }
 
 process fast_machina {
@@ -50,10 +51,12 @@ process fast_machina {
         tuple path(leaf_labeling), path(edgelist), val(input_setting), val(output_setting), val(id)
 
     output:
-        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
+        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("inferred_results.json"), 
+              path("transition_probs.csv"), path("timing.txt"), val(id)
 
     """
     module load gurobi
+    ${params.python} ${params.scripts_dir}/processing/branch_lengths_to_probs.py ${edgelist} ${leaf_labeling} --format edgelist > transition_probs.csv
     /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -c ${output_setting} -o inferred 2>> timing.txt
     """
 }
