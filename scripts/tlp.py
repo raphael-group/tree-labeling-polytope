@@ -173,7 +173,7 @@ def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
 Solves a generalization of the MACHINA parsimonious migration 
 history problem using the tree labeling polytope.
 """
-def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.05):
+def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.15):
     tree = tree.copy()
 
     """ Step 1: Prune the tree to remove unnecessary nodes """
@@ -453,11 +453,20 @@ if __name__ == "__main__":
         unlabeled_leaves = [node for node in tree.nodes if is_leaf(tree, node) and leaf_f(node) is None]
         raise ValueError(f"Leaves {unlabeled_leaves} are unlabeled.")
 
-    # computes the vertex labeling using the specified method
-    if args.method == "fast_machina":
-        vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
-    elif args.method == "exact_tnet":
-        vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, root, args)
+    if args.label is not None and args.label not in character_set:
+        logger.warning(f"Root label {args.label} not in character set, removing it.")
+        args.label = None
+
+    if len(character_set) == 1:
+        logger.warning("Character set has size 1, inferring trivial labeling.")
+        vertex_labeling = {node: character_set[0] for node in tree.nodes}
+        obj = 0
+    else:
+        # computes the vertex labeling using the specified method
+        if args.method == "fast_machina":
+            vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
+        elif args.method == "exact_tnet":
+            vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, root, args)
 
     # write the objective value to a file (json)
     with open(f"{args.output}_results.json", "w") as f:

@@ -8,7 +8,7 @@ params.machina    = "/n/fs/ragr-data/bin/pmh"
 params.ncells   = [250, 500, 750, 1000]                                     // number of sampled cells
 params.mrate    = [1e-3]                                                    // migration rate
 params.settings = ['polyclonal_tree', 'polyclonal_dag']                     // structure
-params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8]                                  // random parameter
+params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]   // random parameter
 params.error    = [0, 5]
 
 params.methods = ['fast_machina', 'parsimony']

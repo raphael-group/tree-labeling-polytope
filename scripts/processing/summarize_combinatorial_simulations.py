@@ -24,7 +24,11 @@ def load_files(directory):
                     content['e'] = e
                     content['setting'] = setting
 
-                    labeling = pd.read_csv(f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_labeling.csv").set_index('vertex')
+                    labeling_file = f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_labeling.csv"
+                    if not os.path.exists(labeling_file):
+                        continue
+
+                    labeling = pd.read_csv(labeling_file).set_index('vertex')
                     try:
                         tree = nx.read_edgelist(
                             f"{ROOT_DIR}/n{n}_m{m}_s{s}_e{e}_{setting}/sim_tree_edgelist.tsv", 

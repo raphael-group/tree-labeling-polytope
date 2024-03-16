@@ -14,8 +14,9 @@ def construct_migration_graph(tree, character_set, labeling):
         if labeling[u] == labeling[v]: 
             continue
         if (labeling[u], labeling[v]) in G.edges:
+            G[labeling[u]][labeling[v]]["weight"] += 1
             continue
-        G.add_edge(labeling[u], labeling[v])
+        G.add_edge(labeling[u], labeling[v], weight=1)
 
     return G
 
@@ -141,11 +142,16 @@ if __name__ == "__main__":
         "has_cycles": 0,
         "num_sampled": len(solutions),
         "num_nodes": len(tree.nodes),
-        "num_characters": len(character_set)
+        "num_characters": len(character_set),
+        "topologies": []
     }
+
+    migration_graph_topologies = defaultdict(int)
 
     for solution in solutions:
         G = construct_migration_graph(tree, character_set, solution)
+
+        migration_graph_topologies[frozenset(G.edges.data("weight"))] += 1
 
         if nx.is_tree(G):
             migration_graph_statistics["is_polyclonal_tree"] += 1
@@ -154,5 +160,15 @@ if __name__ == "__main__":
         else:
             migration_graph_statistics["has_cycles"] += 1
 
+    for topology, count in migration_graph_topologies.items():
+        edge_list = []
+        for u, v, weight in topology:
+            edge_list.append({"src": u, "dst": v, "multiplicity": int(weight)})
+
+        migration_graph_statistics[f"topologies"].append({
+            "edges": edge_list,
+            "count": count
+        })
+
     with open(args.output, "w") as f:
-        json.dump(migration_graph_statistics, f)
+        json.dump(migration_graph_statistics, f, indent=4)

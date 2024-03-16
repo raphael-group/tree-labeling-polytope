@@ -13,7 +13,7 @@ def load_files(directory):
                     content = json.load(f)
                     match = re.search(r'n(\d+)_m(1E-\d+|0.\d+)_e(\d+)_s(\d+)_((poly|mono)clonal_(tree|dag))', d)
                     algorithm = d[:match.start() - 1]
-                    n, m, s, e, setting, _, _ = match.groups()
+                    n, m, e, s, setting, _, _ = match.groups()
 
                     false_positive_rate = content['pairwise_relations']['false_positive_rate']
                     false_negative_rate = content['pairwise_relations']['false_negative_rate']
