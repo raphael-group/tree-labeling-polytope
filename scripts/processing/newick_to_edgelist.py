@@ -11,6 +11,9 @@ def from_newick_get_nx_tree(tree_path):
     node_renaming_mapping = {}
     idx = 0
     for node in net_tree.nodes:
+        if nx.degree(net_tree, node) == 1:
+            continue
+
         node_renaming_mapping[node] = f'clade_{idx}'
         idx = idx + 1
 

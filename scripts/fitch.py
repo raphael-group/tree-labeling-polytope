@@ -9,6 +9,12 @@ from tqdm import tqdm
 from collections import defaultdict, deque
 
 def construct_migration_graph(tree, character_set, labeling):
+    if len(character_set) == 1:
+        G = nx.DiGraph()
+        nodes = list(tree.nodes)
+        G.add_node(labeling[nodes[0]])
+        return G
+
     G = nx.DiGraph()
     for u, v in tree.edges:
         if labeling[u] == labeling[v]: 

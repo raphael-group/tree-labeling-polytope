@@ -168,6 +168,79 @@ def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
     leaf_f = lambda v: leaf_dict[v]
     return tree, leaf_f, node_to_ancestor_map
 
+"""
+Solves a generalization of the convex recoloring
+problem using the tree labeling polytope.
+"""
+def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.15):
+    T = tree.copy()
+
+    if args.k is None:
+        k = len(character_set) - 1
+
+    model = pyo.ConcreteModel()
+
+    logger.info(f"Creating tree labeling polytope for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
+    logger.info(f"Character set has size: {len(character_set)}")
+
+    # add a dummy root node
+    T.add_node("dummy_root")
+    T.add_edge("dummy_root", root)
+
+    pendant_edges = [(u, v) for u, v in T.edges if is_leaf(T, v)]
+
+    # i.e. x_{u,v,c,c'} = 1 if u is assigned character c and v is assigned character c'
+    model = pyo.ConcreteModel()
+    # set domain to be [0, 1]
+    model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals, initialize=0)
+    model.relabelings = pyo.Var(pendant_edges, domain=pyo.Binary, initialize=0)
+
+    # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w,c
+    model.edge_constraints = pyo.ConstraintList()
+    for u, v in T.edges:
+        for c in character_set:
+            for w in T[v]:
+                model.edge_constraints.add(
+                    sum(model.decisions[u, v, c2, c] for c2 in character_set) - sum(model.decisions[v, w, c, c2] for c2 in character_set) == 0
+                )
+
+    # require \sum_{c,c'} x_{u,v,c,c'} = 1 for all e=(u,v)
+    model.sum_constraints = pyo.ConstraintList()
+    for u, v in T.edges:
+        model.sum_constraints.add(sum(model.decisions[u, v, c1, c2] for c2 in character_set for c1 in character_set) == 1)
+
+    # require leaves that are not relabeled to have the correct label
+    model.leaf_constraints = pyo.ConstraintList()
+    for u, v in pendant_edges:
+        for c in character_set:
+            if c == leaf_f(v):
+                model.leaf_constraints.add(sum(model.decisions[u, v, c2, c] for c2 in character_set) >= model.relabelings[u, v])
+
+    # c^T x_{u,v,i,j} \leq k
+    model.sum_constraints.add(
+        sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set) <= k
+    )
+
+    model.objective_expr = sum(model.relabelings[u, v] for u, v in pendant_edges)
+    model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.maximize)
+
+    solver = pyo.SolverFactory('gurobi_persistent')
+    solver.set_instance(model)
+    solver.solve(model, tee=True, warmstart=True)
+
+    # print out the variables relabelings
+    for u, v in pendant_edges:
+        if model.relabelings[u, v].value < 0.5:
+            logger.info(f"Relabeling of {v}: {model.relabelings[u, v].value}")
+
+    vertex_labeling = {}
+    for u, v in T.edges:
+        for c1, c2 in itertools.product(character_set, character_set):
+            if np.abs(model.decisions[u, v, c1, c2]()) > 1e-4:
+                vertex_labeling[u] = c1
+                vertex_labeling[v] = c2
+    
+    return vertex_labeling, model.objective()
 
 """
 Solves a generalization of the MACHINA parsimonious migration 
@@ -388,6 +461,15 @@ def parse_arguments():
     exact_tnet_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
     exact_tnet_parser.add_argument("-l", "--label", help="Root label", default=None)
 
+    # parsimonious relabeling subparser
+    parsimonious_relabeling = subparsers.add_parser("parsimonious_relabeling", help="parsimoniousRelabeling")
+    parsimonious_relabeling.add_argument("tree", help="Tree in edgelist format")
+    parsimonious_relabeling.add_argument("labels", help="Leaf labeling as a CSV file")
+    parsimonious_relabeling.add_argument("-o", "--output", help="Output prefix", default="result")
+    parsimonious_relabeling.add_argument("-r", "--root", help="Root of the tree", default="root")
+    parsimonious_relabeling.add_argument("-k", help="Weighted parsimony constraint", default=None, type=float)
+    parsimonious_relabeling.add_argument("-w", "--weights", help="Weight of transitioning between labels", default=None)
+
     args = parser.parse_args()
     return args
 
@@ -453,6 +535,9 @@ if __name__ == "__main__":
         unlabeled_leaves = [node for node in tree.nodes if is_leaf(tree, node) and leaf_f(node) is None]
         raise ValueError(f"Leaves {unlabeled_leaves} are unlabeled.")
 
+    if not hasattr(args, "label"):
+        args.label = None
+
     if args.label is not None and args.label not in character_set:
         logger.warning(f"Root label {args.label} not in character set, removing it.")
         args.label = None
@@ -467,6 +552,8 @@ if __name__ == "__main__":
             vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
         elif args.method == "exact_tnet":
             vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, root, args)
+        elif args.method == "parsimonious_relabeling":
+            vertex_labeling, obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args)
 
     # write the objective value to a file (json)
     with open(f"{args.output}_results.json", "w") as f:
@@ -494,5 +581,3 @@ if __name__ == "__main__":
         f.write("source,target,count\n")
         for (i, j), count in migration_graph.items():
             f.write(f"{i},{j},{count}\n")
-
-
