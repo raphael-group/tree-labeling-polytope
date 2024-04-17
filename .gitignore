@@ -435,4 +435,5 @@ TSWLatexianTemp*
 nextflow_results/
 nextflow.log
 nextflow.log.*
-real_data/
+real_data/indiana/
+real_data/fitchcount/work/

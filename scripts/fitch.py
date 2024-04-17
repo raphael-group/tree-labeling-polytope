@@ -89,6 +89,10 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-l", "--label", help="Label for the root node", default=None
+    )
+
+    parser.add_argument(
         "-o", "--output", help="Output file", default="output.json"
     )
 
@@ -129,7 +133,11 @@ if __name__ == "__main__":
     for _ in range(args.samples):
         solution = {}
         for node in nx.dfs_preorder_nodes(tree, root): 
-            if node == root: 
+            if node == root:
+                if args.label is not None:
+                    solution[node] = args.label
+                    continue
+
                 minimum_cost = min(scores[root].values())
                 solution[node] = np.random.choice([char for char in character_set if scores[root][char] == minimum_cost])
                 continue

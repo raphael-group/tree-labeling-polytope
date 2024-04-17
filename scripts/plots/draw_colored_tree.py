@@ -51,7 +51,7 @@ def rgb_tuple_to_hex(rgb):
     rgb = [int(255 * x) for x in rgb]
     return "#{:02x}{:02x}{:02x}".format(*rgb)
 
-def draw_colored_tree(T, labeling, color_map, f, convert_to_hex=True):
+def draw_colored_tree(T, labeling, color_map, f, convert_to_hex=True, branch_lengths=False):
     f.write("digraph T {\n")
     for u in T.nodes():
         if u in labeling.index:
@@ -60,8 +60,12 @@ def draw_colored_tree(T, labeling, color_map, f, convert_to_hex=True):
             f.write(f"\t\"{u}\" [label=\"{label}\", fillcolor=\"{color}\", style=filled];\n")
         else:
             f.write(f"\t\"{u}\";\n")
+
     for u, v in T.edges():
-        f.write(f"\t\"{u}\" -> \"{v}\";\n")
+        if branch_lengths:
+            f.write(f"\t\"{u}\" -> \"{v}\" [label={T[u][v]['weight']:.2f}];\n")
+        else:
+            f.write(f"\t\"{u}\" -> \"{v}\";\n")
     f.write("}\n")
 
 def make_color_graph(T, labeling, color_map, convert_to_hex=True):
@@ -98,6 +102,7 @@ def parse_args():
     parser.add_argument("labeling", help="The input labeling")
     parser.add_argument("-o", "--output", help="The output prefix", default="result")
     parser.add_argument("-m", "--multi-edges", help="Display multi-edges", action="store_true", default=False)
+    parser.add_argument("-b", "--branch-lengths", help="Display branch lengths", action="store_true", default=False)
     parser.add_argument("-s", "--svg", help="Output as SVG", action="store_true", default=False)
     parser.add_argument("-p", "--palette", help="The palette to use", default=None)
 
@@ -128,7 +133,7 @@ def main():
 
     print(color_map)
     with open(f"{args.output}_colored_tree.dot", "w") as f:
-        draw_colored_tree(T, labeling, color_map, f, convert_to_hex)
+        draw_colored_tree(T, labeling, color_map, f, convert_to_hex, args.branch_lengths)
 
     with open(f"{args.output}_color_graph.dot", "w") as f:
         G = make_color_graph(T, labeling, color_map, convert_to_hex)
