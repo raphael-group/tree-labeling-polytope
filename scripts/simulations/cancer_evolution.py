@@ -110,7 +110,7 @@ def polyclonal_dag_migration(mean_migrations, cells_to_migrate, site, migration_
     for idx in migrating_cell_indices:
         migrating_cell = generation[idx]
 
-        if np.random.rand() > 0.5:
+        if np.random.rand() > 0.85:
             new_site = new_site_fn(site)
             generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
         else:
@@ -352,14 +352,17 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
 
     logger.info("Constructing induced subtree...")
     selected_leaves = np.random.choice(generations[args.generations], args.n, replace=False)
-    marked_nodes = set(selected_leaves)
+    marked_nodes = set(selected_leaves) # set of nodes to keep
     for n in nx.dfs_postorder_nodes(T, source=founder):
-        if any(marked in T.successors(n) for marked in marked_nodes):
+        if any(child in marked_nodes for child in T.successors(n)):
             marked_nodes.add(n)
     
     logger.info(f"Contracting rank-2 nodes...")
-    # TODO: this loops take quadratic time
     T_induced = nx.induced_subgraph(T, marked_nodes).copy()
+
+    for (u, v) in T_induced.edges:
+        T_induced[u][v]['weight'] = 1
+
     while True:
         has_rank_two_nodes = False
         nodes = list(T_induced.nodes)
@@ -372,12 +375,20 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
             if n.anatomical_site != child.anatomical_site: continue
 
             has_rank_two_nodes = True
+
+            parent_edge = list(T_induced.in_edges(n))[0]
+            child_edge = list(T_induced.out_edges(n))[0]
+            weight = T_induced[parent][n]['weight'] + T_induced[n][child]['weight']
+
             T_induced.remove_node(n)
-            T_induced.add_edge(parent, child)
+            T_induced.add_edge(parent, child, weight=weight)
             break
 
         if not has_rank_two_nodes:
             break
+
+    # for e in T_induced.edges:
+        # print(T_induced[e[0]][e[1]]['weight'])
 
     anatomical_sites = set(cell.anatomical_site for cell in T_induced.nodes())
     anatomical_sites_in_leaves = set(cell.anatomical_site for cell in selected_leaves)
@@ -393,11 +404,14 @@ def simulate_evolution(params: EvolutionParameters, n: int, num_generations: int
         parent = list(T_induced.predecessors(n))[0]
         children = list(T_induced.successors(n))
 
+        parent_edge_weight = T_induced[parent][n]['weight']
+        children_edge_weights = [T_induced[n][child]['weight'] for child in children]
+
         T.remove_node(n)
         T.add_node(Cell(parent.anatomical_site, n.identifier, n.mutations))
-        T.add_edge(parent, n)
-        for child in children:
-            T.add_edge(n, child)
+        T.add_edge(parent, n, weight=parent_edge_weight)
+        for i, child in enumerate(children):
+            T.add_edge(n, child, weight=children_edge_weights[i])
 
     return T_induced
 
@@ -427,8 +441,9 @@ def stochastic_spr(T, num_perturbations=10):
         if w == u:
             continue
 
+        removed_weight = T[u][v]['weight']
         T.remove_edge(u, v)
-        T.add_edge(w, v)
+        T.add_edge(w, v, weight=removed_weight)
 
         count += 1
 
@@ -436,8 +451,9 @@ def stochastic_spr(T, num_perturbations=10):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simulate metastatic cancer evolution along a phylogenetic tree.")
+    parser.add_argument("-a", "--attempts", help="Number of attempts", type=int, default=10)
     parser.add_argument("-r", "--random-seed", help="Random seed", type=int, default=0)
-    parser.add_argument("-o", "--output", help="Output prefix", default="result")
+    parser.add_argument("-o", "--output", help="Output prefix", default="simulation")
     parser.add_argument("-n", help="Number of leaves to sample", type=int, default=200)
     parser.add_argument("-e", "--errors", help="Number of errors (default: 0)", type=float, default=0)
     parser.add_argument("--generations", help="Number of generations", type=int, default=40)
@@ -469,7 +485,14 @@ if __name__ == "__main__":
     )
 
     np.random.seed(args.random_seed)
-    T = simulate_evolution(params, args.n, args.generations)
+
+    for _ in range(args.attempts):
+        try:
+            T = simulate_evolution(params, args.n, args.generations)
+            break
+        except Exception as e:
+            logger.error(e)
+            continue
 
     if args.errors > 0:
         T_perturbed = stochastic_spr(T, args.errors)
@@ -485,11 +508,11 @@ if __name__ == "__main__":
 
     with open(f"{args.output}_tree_edgelist.tsv", "w") as f:
         for (i, j) in T.edges:
-            f.write(f"s{i.identifier}\ts{j.identifier}\n")
+            f.write(f"s{i.identifier}\ts{j.identifier}\t{T[i][j]['weight']}\n")
 
     with open(f"{args.output}_perturbed_tree_edgelist.tsv", "w") as f:
         for (i, j) in T_perturbed.edges:
-            f.write(f"s{i.identifier}\ts{j.identifier}\n")
+            f.write(f"s{i.identifier}\ts{j.identifier}\t{T_perturbed[i][j]['weight']}\n")
 
     with open(f"{args.output}_labeling.csv", "w") as f:
         f.write("vertex,label\n")

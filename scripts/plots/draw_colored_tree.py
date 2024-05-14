@@ -38,7 +38,10 @@ def parse_tree(tree_file, format='adjacency_list'):
     if format == 'adjacency_list':
         return nx.read_adjlist(tree_file, create_using=nx.DiGraph())
     elif format == 'edgelist':
-        return nx.read_edgelist(tree_file, create_using=nx.DiGraph())
+        try:
+            return nx.read_edgelist(tree_file, create_using=nx.DiGraph(), data=(("weight", float),))
+        except:
+            return nx.read_edgelist(tree_file, create_using=nx.DiGraph())
     elif format == 'newick':
         return from_newick_get_nx_tree(tree_file)
     else:
@@ -48,23 +51,28 @@ def rgb_tuple_to_hex(rgb):
     rgb = [int(255 * x) for x in rgb]
     return "#{:02x}{:02x}{:02x}".format(*rgb)
 
-def draw_colored_tree(T, labeling, color_map, f):
+def draw_colored_tree(T, labeling, color_map, f, convert_to_hex=True, branch_lengths=False):
     f.write("digraph T {\n")
     for u in T.nodes():
         if u in labeling.index:
             label = labeling.loc[u, 'label']
-            color = rgb_tuple_to_hex(color_map[label])
+            color = rgb_tuple_to_hex(color_map[label]) if convert_to_hex else color_map[label]
             f.write(f"\t\"{u}\" [label=\"{label}\", fillcolor=\"{color}\", style=filled];\n")
         else:
             f.write(f"\t\"{u}\";\n")
+
     for u, v in T.edges():
-        f.write(f"\t\"{u}\" -> \"{v}\";\n")
+        if branch_lengths:
+            f.write(f"\t\"{u}\" -> \"{v}\" [label={T[u][v]['weight']:.2f}];\n")
+        else:
+            f.write(f"\t\"{u}\" -> \"{v}\";\n")
     f.write("}\n")
 
-def make_color_graph(T, labeling, color_map):
+def make_color_graph(T, labeling, color_map, convert_to_hex=True):
     color_graph = nx.DiGraph()
     for u in labeling['label'].unique():
-        color_graph.add_node(u, color=rgb_tuple_to_hex(color_map[u]))
+        color = rgb_tuple_to_hex(color_map[u]) if convert_to_hex else color_map[u]
+        color_graph.add_node(u, color=color)
     for u, v in T.edges():
         u_label = labeling.loc[u, 'label']
         v_label = labeling.loc[v, 'label']
@@ -95,7 +103,9 @@ def parse_args():
     parser.add_argument("labeling", help="The input labeling")
     parser.add_argument("-o", "--output", help="The output prefix", default="result")
     parser.add_argument("-m", "--multi-edges", help="Display multi-edges", action="store_true", default=False)
+    parser.add_argument("-b", "--branch-lengths", help="Display branch lengths", action="store_true", default=False)
     parser.add_argument("-s", "--svg", help="Output as SVG", action="store_true", default=False)
+    parser.add_argument("-p", "--palette", help="The palette to use", default=None)
 
     parser.add_argument(
         "-f", "--format", help="The format of the input trees", 
@@ -111,16 +121,24 @@ def main():
     labeling = pd.read_csv(args.labeling).set_index('vertex')
     # labeling['label'] = labeling['label'].str.split('_').str.get(-1)
 
-    num_colors = len(labeling['label'].unique())
-    colors = sns.color_palette("pastel", num_colors)
-    labels = sorted(labeling['label'].unique())
-    color_map = {label: colors[i] for i, label in enumerate(labels)}
+    if args.palette is not None:
+        palette = pd.read_csv(args.palette)
+        palette['color'] = "#" + palette['color']
+        color_map = dict(zip(palette['label'], palette['color']))
+        convert_to_hex = False
+    else:
+        num_colors = len(labeling['label'].unique())
+        colors = sns.color_palette("deep", num_colors)
+        labels = sorted(labeling['label'].unique())
+        color_map = {label: colors[i] for i, label in enumerate(labels)}
+        convert_to_hex = True
 
+    print(color_map)
     with open(f"{args.output}_colored_tree.dot", "w") as f:
-        draw_colored_tree(T, labeling, color_map, f)
+        draw_colored_tree(T, labeling, color_map, f, convert_to_hex, args.branch_lengths)
 
     with open(f"{args.output}_color_graph.dot", "w") as f:
-        G = make_color_graph(T, labeling, color_map)
+        G = make_color_graph(T, labeling, color_map, convert_to_hex)
         draw_color_graph(G, f, args.multi_edges)
 
     if args.svg:

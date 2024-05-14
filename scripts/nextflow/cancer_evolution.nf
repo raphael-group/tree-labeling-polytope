@@ -8,10 +8,10 @@ params.machina    = "/n/fs/ragr-data/bin/pmh"
 params.ncells   = [250, 500, 750, 1000]                                     // number of sampled cells
 params.mrate    = [1e-3]                                                    // migration rate
 params.settings = ['polyclonal_tree', 'polyclonal_dag']                     // structure
-params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]       // random parameter
+params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]   // random parameter
+params.error    = [0, 5]
 
-// params.methods  = ['tnet', 'fast_machina', 'parsimony']
-params.methods = ['fast_machina']
+params.methods = ['fast_machina', 'parsimony']
 
 process create_sim {
     cpus 1
@@ -20,22 +20,22 @@ process create_sim {
     errorStrategy 'ignore'
     stageInMode 'copy'
 
-    publishDir "${params.output_dir}/ground_truth/n${cells}_m${mrate}_s${seed}_${setting}", mode: 'copy', overwrite: true
+    publishDir "${params.output_dir}/ground_truth/n${cells}_m${mrate}_e${error}_s${seed}_${setting}", mode: 'copy', overwrite: true
 
     input:
-        tuple val(cells), val(mrate), val(setting), val(seed)
+        tuple val(cells), val(mrate), val(setting), val(error), val(seed)
 
     output:
         tuple path("sim_labeling.csv"), path("sim_leaf_labeling.csv"), path("sim_leaf_labeling.tsv"), 
         path("sim_migration_graph.csv"), path("sim_tree_edgelist.tsv"), path("sim_perturbed_tree_edgelist.tsv"),
-        val(cells), val(mrate), val(setting), val(seed), val("n${cells}_m${mrate}_s${seed}_${setting}"), 
-        path("sim_colored_tree.svg"), path("sim_color_graph.svg")
+        val(cells), val(mrate), val(setting), val(seed), val("n${cells}_m${mrate}_e${error}_s${seed}_${setting}")
+        //path("sim_colored_tree.svg"), path("sim_color_graph.svg")
 
     """
-    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e 10
+    ${params.python} ${params.scripts_dir}/simulations/cancer_evolution.py -o sim -n ${cells} --migration-rate ${mrate} -r ${seed} -s ${setting} --generations 44 -e ${error}
     tail -n +2 sim_leaf_labeling.csv | sed 's/,/\t/' > sim_leaf_labeling.tsv
-    ${params.python} ${params.scripts_dir}/plots/draw_colored_tree.py sim_tree_edgelist.tsv sim_labeling.csv -o sim --svg
     """
+    //${params.python} ${params.scripts_dir}/plots/draw_colored_tree.py sim_tree_edgelist.tsv sim_labeling.csv -o sim --svg
 }
 
 process fast_machina {
@@ -186,6 +186,7 @@ workflow {
     parameter_channel = channel.fromList(params.ncells)
                                .combine(channel.fromList(params.mrate))
                                .combine(channel.fromList(params.settings))
+                               .combine(channel.fromList(params.error))
                                .combine(channel.fromList(params.seeds))
 
     simulation = parameter_channel | create_sim 
