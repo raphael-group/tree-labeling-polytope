@@ -78,6 +78,7 @@ def make_color_graph(T, labeling, color_map):
 
 def draw_color_graph(G, f, multi_edges=False):
     f.write("digraph G {\n")
+    f.write("\tbeautify=true\n")
     for u in G.nodes():
         f.write(f"\t\"{u}\" [fillcolor=\"{G.nodes[u]['color']}\", style=filled];\n")
     for u, v in G.edges():
@@ -108,9 +109,10 @@ def main():
     args = parse_args()
     T = parse_tree(args.tree, args.format)
     labeling = pd.read_csv(args.labeling).set_index('vertex')
+    # labeling['label'] = labeling['label'].str.split('_').str.get(-1)
 
     num_colors = len(labeling['label'].unique())
-    colors = sns.color_palette("deep", num_colors)
+    colors = sns.color_palette("pastel", num_colors)
     labels = sorted(labeling['label'].unique())
     color_map = {label: colors[i] for i, label in enumerate(labels)}
 
