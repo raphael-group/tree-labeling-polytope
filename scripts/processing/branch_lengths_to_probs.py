@@ -26,6 +26,13 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-s", "--scale",
+        type=float,
+        default=1.0,
+        help="Scale factor for the branch lengths"
+    )
+
+    parser.add_argument(
         "-f", "--format",
         default="newick",
         choices=["newick", "edgelist"],
@@ -49,7 +56,7 @@ if __name__ == "__main__":
 
     print('parent,child,label1,label2,probability')
     for edge in tree.edges:
-        branch_length = tree[edge[0]][edge[1]]['weight']
+        branch_length = tree[edge[0]][edge[1]]['weight'] * args.scale
         if m == 1:
             for l1 in labels:
                 for l2 in labels:

@@ -90,7 +90,7 @@ def polyclonal_tree_migration(mean_migrations, cells_to_migrate, site, migration
     for idx in migrating_cell_indices:
         migrating_cell = generation[idx]
 
-        if np.random.rand() > 0.5:
+        if np.random.rand() > 0.8:
             new_site = new_site_fn(site)
             generation[idx] = Cell(new_site, migrating_cell.identifier, migrating_cell.mutations)
         else:

@@ -8,7 +8,7 @@ params.machina    = "/n/fs/ragr-data/bin/pmh"
 params.ncells   = [500]                                                                                    // number of sampled cells
 params.mrate    = [5e-4]                                                                                   // migration rate
 params.settings = ['polyclonal_tree', 'polyclonal_dag', 'none']                                            // structure
-params.seeds    = 1..200                                                                                   // number of random seeds
+params.seeds    = 1..2//00                                                                                   // number of random seeds
 params.error    = [0, 5]                                                                                   // number of errors
 
 process create_sim {
