@@ -437,3 +437,7 @@ nextflow.log
 nextflow.log.*
 real_data/indiana/
 real_data/fitchcount/work/
+real_data/*
+real_data
+
+archive/

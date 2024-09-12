@@ -5,13 +5,13 @@ params.scripts_dir = "${params.proj_dir}/scripts/"
 params.python     = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/python"
 params.machina    = "/n/fs/ragr-data/bin/pmh"
 
-params.ncells   = [250, 500, 750, 1000]                                     // number of sampled cells
+params.ncells   = [25, 50, 100, 200] // [250, 500, 750, 1000]               // number of sampled cells
 params.mrate    = [1e-3]                                                    // migration rate
 params.settings = ['polyclonal_tree', 'polyclonal_dag']                     // structure
 params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]   // random parameter
 params.error    = [0, 5]
 
-params.methods = ['fast_machina', 'parsimony']
+params.methods = ['fast_machina', 'machina', 'parsimony']
 
 process create_sim {
     cpus 1
@@ -79,26 +79,6 @@ process parsimony {
     """
 }
 
-process exact_tnet {
-    cpus 8
-    memory '16 GB'
-    time '4h'
-    stageInMode 'copy'
-
-    publishDir "${params.output_dir}/exact_tnet/${id}", mode: 'copy', overwrite: true
-
-    input:
-        tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
-
-    output:
-        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
-
-    """
-    module load gurobi
-    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py exact_tnet ${edgelist} ${leaf_labeling} -o inferred 2>> timing.txt
-    """
-}
-
 process create_machina_input {
     cpus 1
     memory '4 GB'
@@ -112,6 +92,8 @@ process create_machina_input {
         tuple path("machina_coloring.txt"), path("root_label.txt"), path(leaf_labeling), path(edgelist), val(setting), val(id)
 
     """
+    awk 'BEGIN{FS=OFS="\t"}{print \$1"\t"\$2}' ${edgelist} > tmp_edgelist.tsv
+    mv tmp_edgelist.tsv ${edgelist}
     printf "dummy_root\ts0\ndummy_root\tdummy_leaf\n" >> ${edgelist} 
     printf "dummy_leaf\tdummy_label\n" >> ${leaf_labeling}
     echo "dummy_label" >> root_label.txt
@@ -143,45 +125,6 @@ process machina {
     """
 }
 
-process create_tnet_input {
-    cpus 1
-    memory '4 GB'
-    time '59m'
-    stageInMode 'copy'
-
-    input: 
-        tuple path(leaf_labeling), path(edgelist), val(setting), val(id)
-
-    output:
-        tuple path("tnet_input.newick"), path(leaf_labeling), path(edgelist), val(setting), val(id)
-
-    """
-    ${params.python} ${params.scripts_dir}/processing/create_tnet_input.py ${edgelist} ${leaf_labeling} > tnet_input.newick
-    """
-}
-
-process tnet {
-    cpus 8
-    memory '16 GB'
-    time '59m'
-    stageInMode 'copy'
-    
-    publishDir "${params.output_dir}/tnet/${id}", mode: 'copy', overwrite: true
-
-    input:
-        tuple path(tnet_input), path(leaf_labeling), path(edgelist), val(setting), val(id)
-
-    output: 
-        tuple path("inferred_vertex_labeling.csv"), path("inferred_migration_graph.csv"), path("timing.txt"), val(id)
-
-    """
-    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tnet.py ${tnet_input} tnet_output_network.tsv 2>> timing.txt
-    ${params.python} ${params.scripts_dir}/processing/create_weights_from_network.py tnet_output_network.tsv > network_weights.csv
-    module load gurobi
-    ${params.python} ${params.scripts_dir}/tlp.py fast_machina ${edgelist} ${leaf_labeling} -w network_weights.csv -c none -o inferred
-    """
-}
-
 workflow {
     parameter_channel = channel.fromList(params.ncells)
                                .combine(channel.fromList(params.mrate))
@@ -197,14 +140,6 @@ workflow {
    
     if (params.methods.contains('parsimony')) {
         parsimony_results = simulation | map {[it[1], it[5], it[8], it[10]]} | parsimony 
-    }
-
-    if (params.methods.contains('exact_tnet')) { 
-        exact_tnet_results = simulation | map {[it[1], it[5], it[8], it[10]]} | exact_tnet 
-    }
-
-    if (params.methods.contains('tnet')) { 
-        tnet_results = simulation | map {[it[1], it[5], it[8], it[10]]} | create_tnet_input | tnet 
     }
 
     if (params.methods.contains('machina')) {

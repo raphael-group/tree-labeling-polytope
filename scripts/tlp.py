@@ -329,110 +329,6 @@ def fast_machina(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.15):
 
     return vertex_labeling, model.objective()
 
-def exact_tnet(tree, character_set, leaf_f, dist_f, root, args):
-    solver = pyo.SolverFactory('gurobi')
-
-    model = create_tree_labeling_polytope(tree, root, character_set, leaf_f, dist_f, root_label=args.label)
-    solver.solve(model, tee=True, warmstart=True)
-
-    obj = model.objective()
-
-    # require that we are on face of the polytope with minimum objective value
-    model.face_constraint = pyo.Constraint(expr=model.objective_expr == obj)
-
-    logger.info(f"Optimal parsimony score: {obj}")
-    logger.info(f"Adding back transmission constraints.")
-
-    model.back_transmissions = pyo.Var(character_set, domain=pyo.Binary, initialize=1)
-    model.back_transmission_constraints = pyo.ConstraintList()
-
-    def back_transmission_callback(model, gb_model, where):
-        if where != GRB.Callback.MIPSOL:
-            return
-
-        # load solutions
-        gb_model.cbGetSolution([model.decisions[u, v, c1, c2] for u, v in tree.edges for c1 in character_set for c2 in character_set if c1 != c2])
-
-        tree_labeling = {}
-        for u, v in tree.edges:
-            for c1, c2 in itertools.product(character_set, character_set):
-                if model.decisions[u, v, c1, c2].value > 0.5:
-                    tree_labeling[u] = c1
-                    tree_labeling[v] = c2
-
-        character, node = None, None
-
-        B = defaultdict(lambda: defaultdict(-1))
-        # three states: -1, 0, 1, indicating have not seen c, have seen c but still c, have seen c but no longer c
-        for u, v in nx.bfs_edges(tree, source=root):
-            for c in character_set:
-                if tree_labeling[v] != c:
-                    if B[u][c] == 0: 
-                        B[v][c] = 1
-
-                if tree_labeling[v] == c:
-                    if B[u][c] == 1:
-                        character, node = c, v
-                        break
-                    else:
-                        B[v][c] = 0
-
-        if character is None:
-            return
-
-        logger.info(f"Adding back transmission constraint for {character} at {node}.")
-        u, v = list(tree.predecessors(node))[0], node
-        node = u
-        while node != root:
-            parent = list(tree.predecessors(node))[0]
-            for c1 in character_set:
-                for c2 in character_set:
-                    if c1 != c and c2 != c:
-                        cons = model.back_transmission_constraints.add(
-                            model.decisions[parent, node, character, c1] + model.decisions[u, v, c2, character] - 1 <= model.back_transmissions[character]
-                        )
-
-                        gb_model.cbLazy(cons)
-
-    # for (u, v) in tree.edges:
-        # e = (u, v)
-        # child_edges = nx.bfs_edges(tree, source=v)
-        # for e_prime in child_edges:
-            # if e_prime == e:
-                # continue
-            # gener = ((i, j1, j2) for i in character_set for j1 in character_set for j2 in character_set if j1 != i or j2 != i)
-            # for i, j1, j2 in gener:
-                # model.back_transmission_constraints.add(
-                    # model.decisions[u, v, i, j1] + model.decisions[e_prime[0], e_prime[1], j2, i] - 1 <= model.back_transmissions[i]
-                # )
-
-    # minimize the number of back transmissions
-    model.bt_objective = pyo.Objective(expr=sum(model.back_transmissions[c] for c in character_set), sense=pyo.minimize)
-    model.objective.deactivate()
-    model.bt_objective.activate()
-
-    # set decision variables to be binary
-    for i in character_set:
-        for j in character_set:
-            for e in tree.edges:
-                model.decisions[e[0], e[1], i, j].domain = pyo.Binary
-
-    solver.solve(model, tee=True, warmstart=True)
-
-    # print out back transmission variables
-    for i in character_set:
-        logger.info(f"Back transmission of {i}: {model.back_transmissions[i].value}")
-
-     # compute (an) optimal vertex labeling
-    vertex_labeling = {}
-    for u, v in tree.edges:
-        for c1, c2 in itertools.product(character_set, character_set):
-            if np.abs(model.decisions[u, v, c1, c2]()) > 1e-4:
-                vertex_labeling[u] = c1
-                vertex_labeling[v] = c2
-
-    return vertex_labeling, model.objective()
-
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Constrained tree labeling using the tree labeling polytope."
@@ -453,16 +349,8 @@ def parse_arguments():
     fast_machina_parser.add_argument("-l", "--label", help="Root label", default=None)
     fast_machina_parser.add_argument("-w", "--weights", help="Weight of transitioning between labels", default=None)
 
-    # exactTNET subparser
-    exact_tnet_parser = subparsers.add_parser("exact_tnet", help="exactTNET")
-    exact_tnet_parser.add_argument("tree", help="Tree in edgelist format")
-    exact_tnet_parser.add_argument("labels", help="Leaf labeling as a CSV file")
-    exact_tnet_parser.add_argument("-o", "--output", help="Output prefix", default="result")
-    exact_tnet_parser.add_argument("-r", "--root", help="Root of the tree", default="root")
-    exact_tnet_parser.add_argument("-l", "--label", help="Root label", default=None)
-
     # parsimonious relabeling subparser
-    parsimonious_relabeling = subparsers.add_parser("parsimonious_relabeling", help="parsimoniousRelabeling")
+    parsimonious_relabeling = subparsers.add_parser("convex_recoloring", help="parsimoniousRelabeling")
     parsimonious_relabeling.add_argument("tree", help="Tree in edgelist format")
     parsimonious_relabeling.add_argument("labels", help="Leaf labeling as a CSV file")
     parsimonious_relabeling.add_argument("-o", "--output", help="Output prefix", default="result")
@@ -550,9 +438,7 @@ if __name__ == "__main__":
         # computes the vertex labeling using the specified method
         if args.method == "fast_machina":
             vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
-        elif args.method == "exact_tnet":
-            vertex_labeling = exact_tnet(tree, character_set, leaf_f, dist_f, root, args)
-        elif args.method == "parsimonious_relabeling":
+        elif args.method == "convex_recoloring":
             vertex_labeling, obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args)
 
     # write the objective value to a file (json)
