@@ -191,9 +191,9 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
 
     # i.e. x_{u,v,c,c'} = 1 if u is assigned character c and v is assigned character c'
     model = pyo.ConcreteModel()
+
     # set domain to be [0, 1]
-    model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals, initialize=0)
-    model.relabelings = pyo.Var(pendant_edges, domain=pyo.Binary, initialize=0)
+    model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.Binary)
 
     # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w,c
     model.edge_constraints = pyo.ConstraintList()
@@ -204,34 +204,38 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
                     sum(model.decisions[u, v, c2, c] for c2 in character_set) - sum(model.decisions[v, w, c, c2] for c2 in character_set) == 0
                 )
 
-    # require \sum_{c,c'} x_{u,v,c,c'} = 1 for all e=(u,v)
-    model.sum_constraints = pyo.ConstraintList()
+    # set \sum_{c, c'} x_{u,v,c,c'} = 1 for all e=(u,v)
     for u, v in T.edges:
-        model.sum_constraints.add(sum(model.decisions[u, v, c1, c2] for c2 in character_set for c1 in character_set) == 1)
+        model.edge_constraints.add(sum(model.decisions[u, v, c1, c2] for c1 in character_set for c2 in character_set) == 1)
 
-    # require leaves that are not relabeled to have the correct label
-    model.leaf_constraints = pyo.ConstraintList()
-    for u, v in pendant_edges:
-        for c in character_set:
-            if c == leaf_f(v):
-                model.leaf_constraints.add(sum(model.decisions[u, v, c2, c] for c2 in character_set) >= model.relabelings[u, v])
+    # need to require each character to is used at least once
+    edges_not_root = [(u, v) for u, v in T.edges if u != "dummy_root"]
+    for c in character_set:
+        model.edge_constraints.add(
+            sum(model.decisions[u, v, c, c2] for u, v in edges_not_root for c2 in character_set) +  sum(model.decisions[u, v, c2, c] for u, v in edges_not_root for c2 in character_set) >= 1
+        )
 
     # c^T x_{u,v,i,j} \leq k
-    model.sum_constraints.add(
-        sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set) <= k
+    model.edge_constraints.add(
+        sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in edges_not_root for c1 in character_set for c2 in character_set) <= k
     )
 
-    model.objective_expr = sum(model.relabelings[u, v] for u, v in pendant_edges)
-    model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.maximize)
+    def w2(u, v, c1, c2):
+        if not is_leaf(T, v): return 0
+        if c2 == leaf_f(v): return 0
+        return 1
+
+    model.objective_expr = sum(model.decisions[u, v, c1, c2] * w2(u, v, c1, c2) for u, v in edges_not_root for c1 in character_set for c2 in character_set)
+    model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.minimize)
 
     solver = pyo.SolverFactory('gurobi_persistent')
     solver.set_instance(model)
     solver.solve(model, tee=True, warmstart=True)
 
     # print out the variables relabelings
-    for u, v in pendant_edges:
-        if model.relabelings[u, v].value < 0.5:
-            logger.info(f"Relabeling of {v}: {model.relabelings[u, v].value}")
+    # for u, v in pendant_edges:
+        # if model.relabelings[u, v].value < 0.5:
+            # logger.info(f"Relabeling of {v}: {model.relabelings[u, v].value}")
 
     vertex_labeling = {}
     for u, v in T.edges:
