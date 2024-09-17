@@ -207,6 +207,14 @@ def campelo_et_al(tree, character_set, leaf_f, dist_f, root, args):
     solver.set_instance(model)
     solver.solve(model, tee=True)
 
+    vertex_labeling = {}
+    for u in T.nodes:
+        for c in character_set:
+            if np.abs(model.x[u, c]()) > 1e-4:
+                vertex_labeling[u] = c
+
+    return vertex_labeling, model.objective()
+
 """
 Solves a generalization of the convex recoloring
 problem using the tree labeling polytope.
@@ -246,7 +254,7 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
                     sum(model.decisions[u, v, c2, c] for c2 in character_set) - sum(model.decisions[v, w, c, c2] for c2 in character_set) == 0
                 )
 
-    # set \sum_{c, c'} x_{u,v,c,c'} = 1 for all e=(u,v)
+    # set \sum_{c, c'} x_{u,v,c,c'} = 1 for all e = (u,v)
     for u, v in T.edges:
         model.edge_constraints.add(sum(model.decisions[u, v, c1, c2] for c1 in character_set for c2 in character_set) == 1)
 
@@ -401,6 +409,7 @@ def parse_arguments():
     parsimonious_relabeling.add_argument("-r", "--root", help="Root of the tree", default="root")
     parsimonious_relabeling.add_argument("-k", help="Weighted parsimony constraint", default=None, type=float)
     parsimonious_relabeling.add_argument("-w", "--weights", help="Weight of transitioning between labels", default=None)
+    parsimonious_relabeling.add_argument("-m", "--mode", help="Mode", choices=["campelo", "tlp"], default="tlp")
 
     args = parser.parse_args()
     return args
@@ -485,9 +494,12 @@ if __name__ == "__main__":
             lp_obj = None
             vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
         elif args.method == "convex_recoloring":
-            campelo_et_al(tree, character_set, leaf_f, dist_f, root, args)
-            _, lp_obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, integral=False)
-            vertex_labeling, obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args)
+            if args.mode == "tlp":
+                _, lp_obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, integral=False)
+                vertex_labeling, obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args)
+            else:
+                vertex_labeling, obj = campelo_et_al(tree, character_set, leaf_f, dist_f, root, args)
+                lp_obj = None
 
     # write the objective value to a file (json)
     with open(f"{args.output}_results.json", "w") as f:
