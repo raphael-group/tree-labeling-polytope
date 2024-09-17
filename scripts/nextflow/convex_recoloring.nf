@@ -4,10 +4,10 @@ params.scripts_dir = "${params.proj_dir}/scripts/"
 
 params.python     = "/n/fs/ragr-data/users/schmidt/miniconda3/envs/breaked/bin/python"
 
-params.ncells   = [100, 200, 500, 1000]                           // number of sampled cells
-params.mrate    = [1e-3]                                                  // migration rate
-params.settings = ['polyclonal_dag']                                      // structure
-params.seeds    = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] // random parameter
+params.ncells   = [100, 200, 500, 1000]                     // number of sampled cells
+params.mrate    = [5e-4]                                    // migration rate
+params.settings = ['polyclonal_dag']                        // structure
+params.seeds    = 1..10                                     // random seed
 params.error    = [5]
 
 process create_sim {
@@ -36,7 +36,7 @@ process create_sim {
 process convex_recoloring {
     cpus 16
     memory '16 GB'
-    time '24h'
+    time '4h'
     stageInMode 'copy'
 
     publishDir "${params.output_dir}/convex_recoloring/${id}", mode: 'copy', overwrite: true
@@ -49,7 +49,7 @@ process convex_recoloring {
 
     """
     module load gurobi
-    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py parsimonious_relabeling ${edgelist} ${leaf_labeling} -o inferred &> timing.txt
+    /usr/bin/time -v ${params.python} ${params.scripts_dir}/tlp.py convex_recoloring ${edgelist} ${leaf_labeling} -o inferred &> timing.txt
     """
 }
 

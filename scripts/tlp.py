@@ -170,9 +170,48 @@ def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
 
 """
 Solves a generalization of the convex recoloring
+problem using the formulation of Campelo et al. 2016.
+"""
+def campelo_et_al(tree, character_set, leaf_f, dist_f, root, args):
+    rooted_T = tree.copy() 
+    T = rooted_T.to_undirected()
+
+    model = pyo.ConcreteModel()
+    model.x = pyo.Var(T.nodes, character_set, domain=pyo.Binary)
+
+    logger.info(f"Creating Campelo et al. 2016 formulation for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
+
+    model.path_constraints = pyo.ConstraintList()
+    for u in tqdm(T.nodes):
+        for v in T.nodes:
+            if u == v: continue
+            path = nx.shortest_path(T, u, v)
+            for w in path[1:-1]:
+                for c in character_set:
+                    model.path_constraints.add(model.x[u, c] + model.x[v, c] - model.x[w, c] <= 1)
+
+    for u in T.nodes:
+        model.path_constraints.add(
+            sum(model.x[u, c] for c in character_set) == 1
+        )
+
+    def weight_f(u, c):
+        if rooted_T.out_degree(u) != 0: return 0
+        if c == leaf_f(u): return 0 
+        return 1
+
+    model.objective_expr = sum(weight_f(u, c) * model.x[u, c] for u in T.nodes for c in character_set)
+    model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.minimize)
+
+    solver = pyo.SolverFactory('gurobi_persistent')
+    solver.set_instance(model)
+    solver.solve(model, tee=True)
+
+"""
+Solves a generalization of the convex recoloring
 problem using the tree labeling polytope.
 """
-def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.15):
+def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.15, integral=True):
     T = tree.copy()
 
     if args.k is None:
@@ -193,7 +232,10 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
     model = pyo.ConcreteModel()
 
     # set domain to be [0, 1]
-    model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.Binary)
+    if integral:
+        model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.Binary)
+    else:
+        model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals)
 
     # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w,c
     model.edge_constraints = pyo.ConstraintList()
@@ -210,9 +252,12 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
 
     # need to require each character to is used at least once
     edges_not_root = [(u, v) for u, v in T.edges if u != "dummy_root"]
+
+    # require y_c \leq \sum_{u,v,c'} x_{u,v,c,c'} + x_{u,v,c',c}
+    model.color_constraints = pyo.ConstraintList()
     for c in character_set:
-        model.edge_constraints.add(
-            sum(model.decisions[u, v, c, c2] for u, v in edges_not_root for c2 in character_set) +  sum(model.decisions[u, v, c2, c] for u, v in edges_not_root for c2 in character_set) >= 1
+        model.color_constraints.add(
+            1 <= sum(model.decisions[u, v, c, c2] + model.decisions[u, v, c2, c] for u, v in edges_not_root for c2 in character_set)
         )
 
     # c^T x_{u,v,i,j} \leq k
@@ -231,11 +276,6 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
     solver = pyo.SolverFactory('gurobi_persistent')
     solver.set_instance(model)
     solver.solve(model, tee=True, warmstart=True)
-
-    # print out the variables relabelings
-    # for u, v in pendant_edges:
-        # if model.relabelings[u, v].value < 0.5:
-            # logger.info(f"Relabeling of {v}: {model.relabelings[u, v].value}")
 
     vertex_labeling = {}
     for u, v in T.edges:
@@ -437,18 +477,24 @@ if __name__ == "__main__":
     if len(character_set) == 1:
         logger.warning("Character set has size 1, inferring trivial labeling.")
         vertex_labeling = {node: character_set[0] for node in tree.nodes}
+        lp_obj = 0
         obj = 0
     else:
         # computes the vertex labeling using the specified method
         if args.method == "fast_machina":
+            lp_obj = None
             vertex_labeling, obj = fast_machina(tree, character_set, leaf_f, dist_f, root, args)
         elif args.method == "convex_recoloring":
+            campelo_et_al(tree, character_set, leaf_f, dist_f, root, args)
+            _, lp_obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, integral=False)
             vertex_labeling, obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args)
 
     # write the objective value to a file (json)
     with open(f"{args.output}_results.json", "w") as f:
         results = {}
         results["objective"] = obj
+        if lp_obj is not None:
+            results["lp_relaxation_objective"] = lp_obj
         f.write(json.dumps(results))
 
     # writes an optimal labeling to a file 
