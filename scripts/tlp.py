@@ -172,12 +172,15 @@ def fast_machina_prune(tree, character_set, leaf_f, dist_f, root):
 Solves a generalization of the convex recoloring
 problem using the formulation of Campelo et al. 2016.
 """
-def campelo_et_al(tree, character_set, leaf_f, dist_f, root, args):
+def campelo_et_al(tree, character_set, leaf_f, dist_f, root, args, integral=True):
     rooted_T = tree.copy() 
     T = rooted_T.to_undirected()
 
     model = pyo.ConcreteModel()
-    model.x = pyo.Var(T.nodes, character_set, domain=pyo.Binary)
+    if integral:
+        model.x = pyo.Var(T.nodes, character_set, domain=pyo.Binary)
+    else:
+        model.x = pyo.Var(T.nodes, character_set, domain=pyo.NonNegativeReals, bounds=(0, 1))
 
     logger.info(f"Creating Campelo et al. 2016 formulation for tree with {len(T.nodes)} nodes and {len(T.edges)} edges.")
 
@@ -215,11 +218,7 @@ def campelo_et_al(tree, character_set, leaf_f, dist_f, root, args):
 
     return vertex_labeling, model.objective()
 
-"""
-Solves a generalization of the convex recoloring
-problem using the tree labeling polytope.
-"""
-def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip_gap=0.15, integral=True):
+def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, integral=True):
     T = tree.copy()
 
     if args.k is None:
@@ -240,10 +239,11 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
     model = pyo.ConcreteModel()
 
     # set domain to be [0, 1]
+    model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals, initialize=0)
     if integral:
-        model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.Binary)
+        model.relabelings = pyo.Var(pendant_edges, domain=pyo.Binary, initialize=0)
     else:
-        model.decisions = pyo.Var(T.edges, character_set, character_set, domain=pyo.NonNegativeReals)
+        model.relabelings = pyo.Var(pendant_edges, domain=pyo.NonNegativeReals, bounds=(0, 1))
 
     # require \sum_{c'} x_{u,v,c,c'} = \sum_{c'}x_{v,w,c',c} for all u,v,w,c
     model.edge_constraints = pyo.ConstraintList()
@@ -254,31 +254,31 @@ def parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, mip
                     sum(model.decisions[u, v, c2, c] for c2 in character_set) - sum(model.decisions[v, w, c, c2] for c2 in character_set) == 0
                 )
 
-    # set \sum_{c, c'} x_{u,v,c,c'} = 1 for all e = (u,v)
+    # require \sum_{c,c'} x_{u,v,c,c'} = 1 for all e=(u,v)
+    model.sum_constraints = pyo.ConstraintList()
     for u, v in T.edges:
-        model.edge_constraints.add(sum(model.decisions[u, v, c1, c2] for c1 in character_set for c2 in character_set) == 1)
+        model.sum_constraints.add(sum(model.decisions[u, v, c1, c2] for c2 in character_set for c1 in character_set) == 1)
 
-    # need to require each character to is used at least once
-    edges_not_root = [(u, v) for u, v in T.edges if u != "dummy_root"]
-
-    # require y_c \leq \sum_{u,v,c'} x_{u,v,c,c'} + x_{u,v,c',c}
-    model.color_constraints = pyo.ConstraintList()
-    for c in character_set:
-        model.color_constraints.add(
-            1 <= sum(model.decisions[u, v, c, c2] + model.decisions[u, v, c2, c] for u, v in edges_not_root for c2 in character_set)
-        )
+    # require leaves that are not relabeled to have the correct label
+    model.leaf_constraints = pyo.ConstraintList()
+    for u, v in pendant_edges:
+        for c in character_set:
+            if c == leaf_f(v):
+                model.leaf_constraints.add(sum(model.decisions[u, v, c2, c] for c2 in character_set) >= model.relabelings[u, v])
 
     # c^T x_{u,v,i,j} \leq k
-    model.edge_constraints.add(
-        sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in edges_not_root for c1 in character_set for c2 in character_set) <= k
+    model.sum_constraints.add(
+        sum(model.decisions[u, v, c1, c2] * dist_f((u, v), c1, c2) for u, v in T.edges for c1 in character_set for c2 in character_set) <= k
     )
 
-    def w2(u, v, c1, c2):
-        if not is_leaf(T, v): return 0
-        if c2 == leaf_f(v): return 0
-        return 1
+    for color in character_set:
+        leaves = [v for v in T.nodes if is_leaf(T, v) and leaf_f(v) == color]
+        if len(leaves) == 0: continue
+        model.sum_constraints.add(
+            sum(model.relabelings[u, v] for u, v in pendant_edges if v in leaves) >= 1
+        )
 
-    model.objective_expr = sum(model.decisions[u, v, c1, c2] * w2(u, v, c1, c2) for u, v in edges_not_root for c1 in character_set for c2 in character_set)
+    model.objective_expr = sum(1 - model.relabelings[u, v] for u, v in pendant_edges)
     model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.minimize)
 
     solver = pyo.SolverFactory('gurobi_persistent')
@@ -498,8 +498,8 @@ if __name__ == "__main__":
                 _, lp_obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args, integral=False)
                 vertex_labeling, obj = parsimonious_relabeling(tree, character_set, leaf_f, dist_f, root, args)
             else:
+                _, lp_obj = campelo_et_al(tree, character_set, leaf_f, dist_f, root, args, integral=False)
                 vertex_labeling, obj = campelo_et_al(tree, character_set, leaf_f, dist_f, root, args)
-                lp_obj = None
 
     # write the objective value to a file (json)
     with open(f"{args.output}_results.json", "w") as f:
