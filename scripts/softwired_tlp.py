@@ -3,16 +3,18 @@ import itertools
 import json
 import sys
 
-import gurobipy as gp
 import pandas as pd
 import numpy as np
 import networkx as nx
-import pyomo.environ as pyo
  
 from loguru import logger
 from tqdm import tqdm
 from enum import Enum
 from collections import defaultdict
+
+import pyomo.environ as pyo
+from gurobipy import GRB
+import gurobipy as gp
 
 def create_softwired_scornavacca(N, root, sequences, alphabet):
     num_characters = len(sequences.iloc[0]['sequence'])

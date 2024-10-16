@@ -54,7 +54,6 @@ if __name__ == '__main__':
         nx_T.add_edge(u, v)
         num_reticulations_added += 1
 
-
     if not args.uniform:
         T = ngesh.add_characters(T, args.num_characters, 3.0, 1.0, seed=args.seed)
         leaf_labels = {node.name: set(node.chars) for node in T.traverse() if node.is_leaf()}
