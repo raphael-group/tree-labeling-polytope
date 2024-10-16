@@ -10,6 +10,7 @@ def parse_args():
     parser.add_argument('-n', '--num_taxa', type=int, default=10, help='Number of taxa')
     parser.add_argument('-m', '--num_characters', type=int, default=10, help='Expected number of characters')
     parser.add_argument('-r', '--num_reticulations', type=int, default=20, help='Number of reticulations')
+    parser.add_argument('-a', '--size_alphabet', type=int, default=4, help='Size of the alphabet')
     parser.add_argument('-s', '--seed', type=int, default=0, help='Random seed')
     parser.add_argument('-o', '--output', type=str, default='sim_phylo_net', help='Output prefix')
     parser.add_argument('--uniform', action='store_true', help='Uniform distribution of characters', default=False)
@@ -63,7 +64,7 @@ if __name__ == '__main__':
             leaf_labels[taxon] = [1 if i in label else 0 for i in range(num_characters)]
     else:
         np.random.seed(args.seed)
-        ALPHABET = ['A', 'C', 'G', 'T']
+        ALPHABET = [chr(i + 65) for i in range(args.size_alphabet)]
         leaf_labels = {node.name: [np.random.choice(ALPHABET) for _ in range(args.num_characters)] for node in T.traverse() if node.is_leaf()}
 
     with open(args.output + '_labeling.csv', 'w') as f:

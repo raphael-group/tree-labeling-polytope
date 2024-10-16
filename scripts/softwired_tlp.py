@@ -14,9 +14,61 @@ from tqdm import tqdm
 from enum import Enum
 from collections import defaultdict
 
-def create_softwired_tlp(N, root, sequences, alphabet):
-    model = pyo.ConcreteModel()
+def create_softwired_scornavacca(N, root, sequences, alphabet):
+    num_characters = len(sequences.iloc[0]['sequence'])
+    characters     = list(range(num_characters))
+    characters_to_idx = {c: i for i, c in enumerate(characters)}
 
+    def leaf_f(c, v):
+        return sequences.loc[v]['sequence'][characters_to_idx[c]]
+
+    reticulation_nodes = set([n for n in N.nodes if N.in_degree(n) > 1])
+    reticulation_edges = set([(u, v) for u, v in N.edges if N.in_degree(v) > 1])
+
+    model = pyo.ConcreteModel()
+    model.labelings = pyo.Var(characters, N.nodes, alphabet, domain=pyo.Binary)
+    model.mutations = pyo.Var(characters, N.edges, domain=pyo.Binary)
+    model.reticulations = pyo.Var(characters, N.edges, domain=pyo.Binary)
+
+    model.labeling_constraints = pyo.ConstraintList()
+    for c in characters:
+        for v in N.nodes:
+            model.labeling_constraints.add(sum(model.labelings[c, v, i] for i in alphabet) == 1)
+
+            if N.out_degree(v) == 0:
+                model.labeling_constraints.add(model.labelings[c, v, leaf_f(c, v)] == 1)
+
+    model.reticulation_constraints = pyo.ConstraintList()
+    for c in characters:
+        for v in reticulation_nodes:
+            model.reticulation_constraints.add(
+                sum(model.reticulations[c, (u, v)] for u in N.predecessors(v)) == 1
+            )
+
+        for v in N.nodes:
+            parents = list(N.predecessors(v))
+            if len(parents) != 1: continue
+            u = parents[0]
+            model.reticulation_constraints.add(model.reticulations[c, (u, v)] == 1)
+
+    model.mutation_constraints = pyo.ConstraintList()
+    for c in characters:
+        for u, v in N.edges:
+            for s in alphabet:
+                model.mutation_constraints.add(
+                    model.mutations[c, (u, v)] >= model.labelings[c, u, s] - model.labelings[c, v, s] - (1 - model.reticulations[c, (u, v)])
+                )
+
+                model.mutation_constraints.add(
+                    model.mutations[c, (u, v)] >= model.labelings[c, v, s] - model.labelings[c, u, s] - (1 - model.reticulations[c, (u, v)])
+                )
+
+    model.objective_expr = sum(model.mutations[c, (u, v)] for c in characters for u, v in N.edges)
+    model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.minimize)
+    return model
+
+
+def create_softwired_tlp(N, root, sequences, alphabet):
     num_characters = len(sequences.iloc[0]['sequence'])
     characters     = list(range(num_characters))
     characters_to_idx = {c: i for i, c in enumerate(characters)}
@@ -95,6 +147,7 @@ def parse_args():
     parser.add_argument("network", help="Phylogenetic network in edgelist format")
     parser.add_argument("sequences", help="Leaf sequences in CSV format")
     parser.add_argument("output", help="Output prefix")
+    parser.add_argument("--mode", choices=["scornavacca", "tlp"], default="tlp", help="Mode to use")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -121,8 +174,12 @@ if __name__ == "__main__":
         logger.error("Network must be a directed acyclic graph.")
         sys.exit(1)
 
-    alphabet = ['A', 'C', 'G', 'T']
-    model = create_softwired_tlp(N, root, sequences, alphabet)
+    alphabet = set([c for _, row in sequences.iterrows() for s in row['sequence'] for c in s])
+    if args.mode == "scornavacca":
+        model = create_softwired_scornavacca(N, root, sequences, alphabet)
+    elif args.mode == "tlp":
+        model = create_softwired_tlp(N, root, sequences, alphabet)
+
     solver = pyo.SolverFactory('gurobi')
     results = solver.solve(model, tee=True)
 
