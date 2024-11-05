@@ -6,6 +6,7 @@ of the tree labeling polytope for the following three problems:
 - the parsimonious migration history problem
 - the softwired small parsimony problem 
 - the convex recoloring problem
+
 Each problem takes as input either a tree topology or a phylogenetic
 network and a leaf labeling, and outputs a labeling of the internal
 nodes of the tree or network that is optimal with respect to the
@@ -41,6 +42,7 @@ The tool requires the following dependencies:
 - loguru
 - Pyomo
 - Gurobi
+
 We note that a Gurobi license is currently required to use the tool,
 but it can be replaced with another solver supported by Pyomo
 (e.g., CPLEX, GLPK) upon request. A Gurobi license is free for academic
