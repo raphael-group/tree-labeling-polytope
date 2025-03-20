@@ -40,8 +40,8 @@ options:
 The top-level help message is shown below for the softwired
 small parsimony problem solvers:
 ```bash
-python scripts/softwired_tlp.py --help
-usage: softwired_tlp.py [-h] [--mode {scornavacca,tlp}] network sequences output
+$ python scripts/softwired_tlp.py --help
+usage: softwired_tlp.py [-h] [--mode {fischer,tlp}] network sequences output
 
 Softwired parsimony problem solver using TLP
 
@@ -52,7 +52,7 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --mode {scornavacca,tlp}
+  --mode {fischer,tlp}
                         Mode to use
 ```
 
@@ -88,8 +88,8 @@ this by executing the following commands:
 
 ```bash
 python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c none -o examples/CP28_unconstrained
-python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c dag -o examples/CP28_dag
-python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c tree -o examples/CP28_tree
+python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c polyclonal_dag -o examples/CP28_dag
+python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c polyclonal_tree -o examples/CP28_tree
 ```
 
 Here, the `-l` flag specifies the anatomical location of the root of the tree,
@@ -103,15 +103,35 @@ results in the following output files:
 which describe the induced migration multigraphs for the unconstrained,
 acyclic, and tree constraints, respectively.
 
-#### Example 2: The Convex Recoloring Problem
+#### Example 2: The Softwired Small Parsimony problem
+
+We demonstrate the use of the tree labeling polytope on a simulated
+phylogenetic network with $n = 1000$ leaves, $r = 20$ reticulation vertices,
+and an amino acid alphabet. The phylogenetic network and leaf
+labeling are stored in `examples/phylogenetic_network/sim_network.edgelist` and
+`examples/phylogenetic_networks/sim_labeling.csv` respectively. 
+
+To evaluate both the tree labeling polytope and Fischer et al. formulations
+of the softwired small parsimony problem, execute the following
+commands:
+```bash
+python scripts/softwired_tlp.py examples/phylogenetic_network/sim_network.edgelist examples/phylogenetic_network/sim_labeling.csv examples/phylogenetic_network/tlp --mode tlp
+python scripts/softwired_tlp.py examples/phylogenetic_network/sim_network.edgelist examples/phylogenetic_network/sim_labeling.csv examples/phylogenetic_network/fischer --mode fischer
+```
+This results in two files `examples/phylogenetic_network/tlp_results.json` and `examples/phylogenetic_network/fischer_results.json` which
+give the objective value and runtime of both formulations, respectively.
+
+#### Example 3: The Convex Recoloring Problem
 
 To solve the convex recoloring problem, we apply the tree labeling polytope
 to the tumor clone `CP28` from the same single-cell lineage tracing dataset.
 We use the same tree topology and leaf labeling as in the previous example.
+We compare both the tree labeling polytope and Campelo et al. 2016 formulations.
 
 ```bash
-python scripts/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring
+python scripts/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_tlp -m tlp
+python scripts/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_campelo -m campelo
 ```
 
-This command results in the output file `examples/CP28_convex_recoloring_vertex_labeling.csv`
+These commands results in two output file `examples/CP28_convex_recoloring_vertex_labeling.csv`
 which describes the convex recoloring of the tree with the minimum number of leaf recolorings.

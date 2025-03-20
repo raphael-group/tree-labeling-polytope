@@ -8,8 +8,6 @@ params.ground_truth_dir = "${params.root_dir}/nextflow_results/ground_truth/"
 params.algorithms = [
     ['fast_machina', 'nextflow_results/fast_machina/', '_labeling.csv'],
     ['machina', 'nextflow_results/machina/', '_labeling.csv'],
-    //['exact_tnet', 'nextflow_results/exact_tnet/', '_labeling.csv'],
-    //['tnet', 'nextflow_results/tnet/', '_labeling.csv'],
     ['parsimony', 'nextflow_results/parsimony/', '_labeling.csv'],
 ]
 
@@ -26,12 +24,10 @@ process EvaluateLabelings {
 
     output:
         path("results.json")
-        //, path("inferred_colored_tree.svg"), path("inferred_color_graph.svg")
 
     """
     ${params.python} ${params.root_dir}/scripts/processing/score_result.py ${perturbed_tree} ${tree} ${true_labeling} ${inferred_labeling} ${timing} -o results.json
     """
-    //${params.python} ${params.root_dir}/scripts/plots/draw_colored_tree.py ${perturbed_tree} ${inferred_labeling} -o inferred --svg
 }
 
 workflow {

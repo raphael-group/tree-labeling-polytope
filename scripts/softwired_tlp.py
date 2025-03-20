@@ -16,7 +16,7 @@ import pyomo.environ as pyo
 from gurobipy import GRB
 import gurobipy as gp
 
-def create_softwired_scornavacca(N, root, sequences, alphabet):
+def create_softwired_fischer(N, root, sequences, alphabet):
     num_characters = len(sequences.iloc[0]['sequence'])
     characters     = list(range(num_characters))
     characters_to_idx = {c: i for i, c in enumerate(characters)}
@@ -147,7 +147,7 @@ def parse_args():
     parser.add_argument("network", help="Phylogenetic network in edgelist format")
     parser.add_argument("sequences", help="Leaf sequences in CSV format")
     parser.add_argument("output", help="Output prefix")
-    parser.add_argument("--mode", choices=["scornavacca", "tlp"], default="tlp", help="Mode to use")
+    parser.add_argument("--mode", choices=["fischer", "tlp"], default="tlp", help="Mode to use")
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -175,8 +175,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     alphabet = set([c for _, row in sequences.iterrows() for s in row['sequence'] for c in s])
-    if args.mode == "scornavacca":
-        model = create_softwired_scornavacca(N, root, sequences, alphabet)
+    if args.mode == "fischer":
+        model = create_softwired_fischer(N, root, sequences, alphabet)
     elif args.mode == "tlp":
         model = create_softwired_tlp(N, root, sequences, alphabet)
 

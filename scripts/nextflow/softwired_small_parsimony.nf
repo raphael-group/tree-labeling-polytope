@@ -51,7 +51,7 @@ workflow {
                          .combine(Channel.fromList(params.alphabet))
                          .combine(Channel.fromList(params.seeds))
     simulations | simulate | flatMap {
-        [[it[0], it[1], "scornavacca", it[2]], 
+        [[it[0], it[1], "fischer", it[2]], 
          [it[0], it[1], "tlp", it[2]]]
     } | softwired_tlp
 }
