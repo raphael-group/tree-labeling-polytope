@@ -15,24 +15,45 @@ problem-specific objective function.
 ### Usage
 
 The tool offers three modes, each corresponding to one of the three
-problems. Each mode offers a different set of options,
+problems. 
+
+Each mode offers a different set of options,
 which are described in the help message for each mode. The top-level
-help message is shown below:
+help message is shown below for the parsimonious migration
+history and convex recoloring problem solvers:
 ```bash
-python src/tlp.py --help
-usage: tlp.py [-h] {fast_machina,convex_recoloring,softwired} ...
+$ python scripts/tlp.py --help
+usage: tlp.py [-h] {fast_machina,convex_recoloring} ...
 
 Constrained tree labeling using the tree labeling polytope.
 
 positional arguments:
-  {fast_machina,convex_recoloring,softwired}
+  {fast_machina,convex_recoloring}
                         Methods
     fast_machina        fastMACHINA
     convex_recoloring   Convex Recoloring
-    softwired           Softwired Small Parsimony on a Phylogenetic Network
 
 options:
   -h, --help            show this help message and exit
+```
+
+The top-level help message is shown below for the softwired
+small parsimony problem solvers:
+```bash
+python scripts/softwired_tlp.py --help
+usage: softwired_tlp.py [-h] [--mode {scornavacca,tlp}] network sequences output
+
+Softwired parsimony problem solver using TLP
+
+positional arguments:
+  network               Phylogenetic network in edgelist format
+  sequences             Leaf sequences in CSV format
+  output                Output prefix
+
+options:
+  -h, --help            show this help message and exit
+  --mode {scornavacca,tlp}
+                        Mode to use
 ```
 
 The tool requires the following dependencies:
@@ -66,9 +87,9 @@ ancestral labeling such that the induced migration graph is
 this by executing the following commands:
 
 ```bash
-python src/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c none -o examples/CP28_unconstrained
-python src/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c dag -o examples/CP28_dag
-python src/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c tree -o examples/CP28_tree
+python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c none -o examples/CP28_unconstrained
+python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c dag -o examples/CP28_dag
+python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c tree -o examples/CP28_tree
 ```
 
 Here, the `-l` flag specifies the anatomical location of the root of the tree,
@@ -89,7 +110,7 @@ to the tumor clone `CP28` from the same single-cell lineage tracing dataset.
 We use the same tree topology and leaf labeling as in the previous example.
 
 ```bash
-python src/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring
+python scripts/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring
 ```
 
 This command results in the output file `examples/CP28_convex_recoloring_vertex_labeling.csv`
