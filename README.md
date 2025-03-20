@@ -77,8 +77,8 @@ dissemination in mice from Yang et al. (2021). The tree topology
 and branch lengths were inferred by applying Startle followed
 by LAML, which are specialized tools for inferring phylogenies
 from lineage tracing data. The tree topology and branch lengths
-are stored in the file `examples/CP28_tree_edgelist.tsv`. The
-leaf labeling is stored in the file `examples/CP28_leaf_labeling.csv`
+are stored in the file `examples/cancer_evolution/CP28_tree_edgelist.tsv`. The
+leaf labeling is stored in the file `examples/cancer_evolution/CP28_leaf_labeling.csv`
 and describes the anatomical location of each cell in the tree.
 
 We apply the tree labeling polytope to infer the most parsimonious 
@@ -87,9 +87,9 @@ ancestral labeling such that the induced migration graph is
 this by executing the following commands:
 
 ```bash
-python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c none -o examples/CP28_unconstrained
-python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c polyclonal_dag -o examples/CP28_dag
-python scripts/tlp.py fast_machina examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -l LL -c polyclonal_tree -o examples/CP28_tree
+python scripts/tlp.py fast_machina examples/cancer_evolution/CP28_tree_edgelist.tsv examples/cancer_evolution/CP28_leaf_labeling.csv -l LL -c none -o examples/cancer_evolution/CP28_unconstrained
+python scripts/tlp.py fast_machina examples/cancer_evolution/CP28_tree_edgelist.tsv examples/cancer_evolution/CP28_leaf_labeling.csv -l LL -c polyclonal_dag -o examples/cancer_evolution/CP28_dag
+python scripts/tlp.py fast_machina examples/cancer_evolution/CP28_tree_edgelist.tsv examples/cancer_evolution/CP28_leaf_labeling.csv -l LL -c polyclonal_tree -o examples/cancer_evolution/CP28_tree
 ```
 
 Here, the `-l` flag specifies the anatomical location of the root of the tree,
@@ -97,9 +97,9 @@ which in this case is the left lung (LL). If this flag is not provided, the
 root is automatically inferred. The `-c` flag specifies the constraint on the
 induced migration graph, which can be `none`, `dag`, or `tree`. This procedure 
 results in the following output files:
-- `examples/CP28_unconstrained_migration_graph.csv`
-- `examples/CP28_dag_migration_graph.csv`
-- `examples/CP28_tree_migration_graph.csv`
+- `examples/cancer_evolution/CP28_unconstrained_migration_graph.csv`
+- `examples/cancer_evolution/CP28_dag_migration_graph.csv`
+- `examples/cancer_evolution/CP28_tree_migration_graph.csv`
 which describe the induced migration multigraphs for the unconstrained,
 acyclic, and tree constraints, respectively.
 
@@ -129,9 +129,9 @@ We use the same tree topology and leaf labeling as in the previous example.
 We compare both the tree labeling polytope and Campelo et al. 2016 formulations.
 
 ```bash
-python scripts/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_tlp -m tlp
-python scripts/tlp.py convex_recoloring examples/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_campelo -m campelo
+python scripts/tlp.py convex_recoloring examples/cancer_evolution/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_tlp -m tlp
+python scripts/tlp.py convex_recoloring examples/cancer_evolution/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_campelo -m campelo
 ```
 
-These commands results in two output file `examples/CP28_convex_recoloring_vertex_labeling.csv`
+These commands results in two output file `examples/cancer_evolution/CP28_convex_recoloring_vertex_labeling.csv`
 which describes the convex recoloring of the tree with the minimum number of leaf recolorings.
