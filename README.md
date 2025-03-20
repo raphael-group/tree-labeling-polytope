@@ -10,7 +10,19 @@ of the tree labeling polytope for the following three problems:
 Each problem takes as input either a tree topology or a phylogenetic
 network and a leaf labeling, and outputs a labeling of the internal
 nodes of the tree or network that is optimal with respect to the
-problem-specific objective function.
+problem-specific objective function. If you find the
+tree labeling polytope useful for your method design, please
+cite us at:
+```
+@article{schmidt2025tree,
+  title={The tree labeling polytope: a unified approach to ancestral reconstruction problems},
+  author={Schmidt, Henri and Raphael, Benjamin},
+  journal={bioRxiv},
+  pages={2025--02},
+  year={2025},
+  publisher={Cold Spring Harbor Laboratory}
+}
+```
 
 ### Usage
 
