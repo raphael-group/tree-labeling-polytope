@@ -29,7 +29,7 @@ def create_softwired_fischer(N, root, sequences, alphabet):
 
     model = pyo.ConcreteModel()
     model.labelings = pyo.Var(characters, N.nodes, alphabet, domain=pyo.Binary)
-    model.mutations = pyo.Var(N.edges, domain=pyo.Binary)
+    model.mutations = pyo.Var(characters, N.edges, domain=pyo.Binary)
     model.reticulations = pyo.Var(characters, N.edges, domain=pyo.Binary)
 
     model.labeling_constraints = pyo.ConstraintList()
@@ -58,14 +58,14 @@ def create_softwired_fischer(N, root, sequences, alphabet):
         for u, v in N.edges:
             for s in alphabet:
                 model.mutation_constraints.add(
-                    model.mutations[(u, v)] >= model.labelings[c, u, s] - model.labelings[c, v, s] - (1 - model.reticulations[c, (u, v)])
+                    model.mutations[c, (u, v)] >= model.labelings[c, u, s] - model.labelings[c, v, s] - (1 - model.reticulations[c, (u, v)])
                 )
 
                 model.mutation_constraints.add(
-                    model.mutations[(u, v)] >= model.labelings[c, v, s] - model.labelings[c, u, s] - (1 - model.reticulations[c, (u, v)])
+                    model.mutations[c, (u, v)] >= model.labelings[c, v, s] - model.labelings[c, u, s] - (1 - model.reticulations[c, (u, v)])
                 )
 
-    model.objective_expr = sum(model.mutations[(u, v)] for u, v in N.edges)
+    model.objective_expr = sum(model.mutations[c, (u, v)] for u, v in N.edges for c in characters)
     model.objective = pyo.Objective(expr=model.objective_expr, sense=pyo.minimize)
     return model
 

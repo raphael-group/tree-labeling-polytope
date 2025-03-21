@@ -142,9 +142,10 @@ We use the same tree topology and leaf labeling as in the previous example.
 We compare both the tree labeling polytope and Campelo et al. 2016 formulations.
 
 ```bash
-python scripts/tlp.py convex_recoloring examples/cancer_evolution/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_tlp -m tlp
-python scripts/tlp.py convex_recoloring examples/cancer_evolution/CP28_tree_edgelist.tsv examples/CP28_leaf_labeling.csv -o examples/CP28_convex_recoloring_campelo -m campelo
+python scripts/tlp.py convex_recoloring examples/cancer_evolution/CP28_tree_edgelist.tsv examples/cancer_evolution/CP28_leaf_labeling.csv -o examples/cancer_evolution/CP28_convex_recoloring_tlp -m tlp
+python scripts/tlp.py convex_recoloring examples/cancer_evolution/CP28_tree_edgelist.tsv examples/cancer_evolution/CP28_leaf_labeling.csv -o examples/cancer_evolution/CP28_convex_recoloring_campelo -m campelo
 ```
 
-These commands results in two output file `examples/cancer_evolution/CP28_convex_recoloring_vertex_labeling.csv`
+These commands results in two output files `examples/cancer_evolution/CP28_convex_recoloring_tlp_vertex_labeling.csv` and
+`examples/cancer_evolution/CP28_convex_recoloring_campelo_vertex_labeling.csv`
 which describes the convex recoloring of the tree with the minimum number of leaf recolorings.
